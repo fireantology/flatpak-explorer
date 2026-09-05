@@ -64,7 +64,6 @@ sudo cp -r flatpak-explorer /usr/share/flatpak-explorer
 sudo cp /usr/share/flatpak-explorer/packaging/flatpak-explorer.desktop /usr/share/applications/
 ```
 
-```
 ### As an Omarchy plugin
 
 ```bash

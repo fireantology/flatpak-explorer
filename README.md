@@ -141,3 +141,7 @@ is the only one the standalone build uses; `Overlay.qml`/`Service.qml`/
 ## Creators
  - fireantology
  - raceboy333
+
+## License
+
+[MIT](LICENSE)

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Flatpak Explorer
+Comment=Browse, search, install, and remove Flatpak apps
+Exec=quickshell -p /usr/share/flatpak-explorer/standalone
+Icon=flatpak
+Categories=System;PackageManager;
+Terminal=false

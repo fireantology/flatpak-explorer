@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "dev.mauro.flatpak-explorer",
+  "name": "Flatpak Explorer",
+  "version": "1.0.0",
+  "author": "mauro",
+  "description": "Browse, search, install, and remove Flatpak apps.",
+  "kinds": ["overlay", "service", "bar-widget"],
+  "entryPoints": {
+    "overlay": "Overlay.qml",
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Flatpak Explorer",
+    "description": "Browse, search, install, and remove Flatpak apps.",
+    "category": "Apps",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

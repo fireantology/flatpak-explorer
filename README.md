@@ -73,7 +73,7 @@ omarchy plugin add git@github.com:fireantology/flatpak-explorer.git --enable
 ```
 
 This clones the plugin into
-`~/.config/omarchy/plugins/dev.mauro.flatpak-explorer/` and registers it with
+`~/.config/omarchy/plugins/com.fireantology.flatpak-explorer/` and registers it with
 the running Omarchy shell. The plugin ships three tightly-coupled pieces —
 an `overlay` (the window itself), a `service` (one shared `flatpak` state
 instance backing both the window and the icon, so they're never out of

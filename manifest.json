@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "dev.mauro.flatpak-explorer",
+  "id": "com.fireantology.flatpak-explorer",
   "name": "Flatpak Explorer",
   "version": "1.0.0",
   "author": "mauro",

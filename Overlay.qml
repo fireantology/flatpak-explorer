@@ -62,7 +62,7 @@ Item {
   readonly property alias opened: explorer.open
 
   IpcHandler {
-    target: "dev.mauro.flatpak-explorer"
+    target: "com.fireantology.flatpak-explorer"
 
     function show(): void { root.open() }
     function hide(): void { root.close() }

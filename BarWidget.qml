@@ -11,9 +11,9 @@ import qs.Commons
 // injection, which only happens for the overlay/panel/menu Loader.
 BarWidget {
   id: root
-  moduleName: "dev.mauro.flatpak-explorer"
+  moduleName: "com.fireantology.flatpak-explorer"
 
-  readonly property var service: root.bar && root.bar.shell ? root.bar.shell.serviceFor("dev.mauro.flatpak-explorer") : null
+  readonly property var service: root.bar && root.bar.shell ? root.bar.shell.serviceFor("com.fireantology.flatpak-explorer") : null
   readonly property int updateCount: service && service.availableUpdates ? service.availableUpdates.length : 0
   readonly property bool hasUpdates: updateCount > 0
 
@@ -35,7 +35,7 @@ BarWidget {
     activeColor: Color.accent
     tooltipText: root.hasUpdates ? ("Flatpak: " + root.updateCount + " update(s) available") : "Flatpak Explorer"
     onPressed: function(mouseButton) {
-      if (root.bar && root.bar.shell) root.bar.shell.summon("dev.mauro.flatpak-explorer")
+      if (root.bar && root.bar.shell) root.bar.shell.summon("com.fireantology.flatpak-explorer")
     }
   }
 }

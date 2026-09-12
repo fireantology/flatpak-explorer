@@ -137,7 +137,10 @@ is the only one the standalone build uses; `Overlay.qml`/`Service.qml`/
 ## Requirements
 
 - Quickshell
-- `flatpak` CLI on `PATH`, with JSON output support (`flatpak --version` ≥ 1.2 or so; developed against 1.18.1)
+- `flatpak` CLI on `PATH`, version **1.17.0 or later** (relied on for `-j`/
+  `--json` output across every listing command; developed against 1.18.1).
+  Enforced by a startup check in the app itself — an older `flatpak` blocks
+  the window with an upgrade prompt instead of failing unpredictably later.
 
 ## Creators
  - fireantology

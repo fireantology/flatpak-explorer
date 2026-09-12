@@ -28,6 +28,14 @@ QtObject {
   // false "not found" message before the check has actually run.
   property bool flatpakAvailable: true
   property bool availabilityChecked: false
+  // Same "not checked yet" vs "checked, and it's unsupported" distinction
+  // as flatpakAvailable/availabilityChecked above, for the minimum-version
+  // gate: every listing command here relies on `-j`/`--json` output, which
+  // needs flatpak >= minFlatpakVersion.
+  readonly property string minFlatpakVersion: "1.17.0"
+  property string flatpakVersion: ""
+  property bool flatpakVersionChecked: false
+  property bool flatpakVersionSupported: true
   // Every mutating action's stdout streams into this live, in order, as it
   // runs -- prefixed with the exact `flatpak ...` command line so the busy
   // popup can show real progress (and what's actually being run) instead of
@@ -123,6 +131,25 @@ QtObject {
   // while `sh` itself is safe to assume present everywhere this runs.
   function checkFlatpakAvailable() {
     if (!flatpakCheckProc.running) flatpakCheckProc.running = true
+  }
+
+  function checkVersion() {
+    if (!versionCheckProc.running) versionCheckProc.running = true
+  }
+
+  // Dot-separated numeric version compare (e.g. "1.17.0" vs "1.9.2") --
+  // returns -1/0/1. A missing segment on either side counts as 0, so
+  // "1.17" compares equal to "1.17.0".
+  function compareVersions(a, b) {
+    var partsA = String(a || "0").split(".")
+    var partsB = String(b || "0").split(".")
+    var len = Math.max(partsA.length, partsB.length)
+    for (var i = 0; i < len; i++) {
+      var na = parseInt(partsA[i] || "0", 10) || 0
+      var nb = parseInt(partsB[i] || "0", 10) || 0
+      if (na !== nb) return na < nb ? -1 : 1
+    }
+    return 0
   }
 
   function refreshInstalled() {
@@ -312,12 +339,31 @@ QtObject {
       root.availabilityChecked = true
       if (exitCode === 0) {
         root.log("flatpakCheckProc: flatpak found on PATH")
+        root.checkVersion()
         root.refreshInstalled()
         root.refreshRemotes()
         root.checkUpdates()
         root.refreshDiskUsage()
       } else {
         root.logError("flatpakCheckProc: flatpak not found on PATH")
+      }
+    }
+  }
+
+  property Process versionCheckProc: Process {
+    command: ["flatpak", "--version"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var match = String(text || "").match(/\d+(\.\d+)*/)
+        root.flatpakVersion = match ? match[0] : ""
+        root.flatpakVersionSupported = match ? root.compareVersions(root.flatpakVersion, root.minFlatpakVersion) >= 0 : false
+        root.flatpakVersionChecked = true
+        if (root.flatpakVersionSupported) {
+          root.log("versionCheckProc: flatpak " + root.flatpakVersion + " >= required " + root.minFlatpakVersion)
+        } else {
+          root.logError("versionCheckProc: flatpak " + (root.flatpakVersion || "(unparseable: " + text + ")") + " is below required " + root.minFlatpakVersion)
+        }
       }
     }
   }

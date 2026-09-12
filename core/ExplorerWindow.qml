@@ -1189,5 +1189,69 @@ FloatingWindow {
         }
       }
     }
+
+    // Same hard-block shape as missingFlatpakOverlay above, for flatpak
+    // being present but too old: every listing command relies on -j/
+    // --json output, which needs service.minFlatpakVersion. Only shown
+    // once flatpak is confirmed present (never together with the
+    // missing-flatpak overlay) and the version check has actually run.
+    Item {
+      id: unsupportedVersionOverlay
+      anchors.fill: parent
+      visible: root.service.availabilityChecked && root.service.flatpakAvailable
+        && root.service.flatpakVersionChecked && !root.service.flatpakVersionSupported
+
+      Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.8) }
+      MouseArea { anchors.fill: parent } // swallow all clicks underneath
+
+      Rectangle {
+        anchors.centerIn: parent
+        radius: 0
+        color: root.theme.background
+        border.color: root.theme.danger
+        border.width: 1
+        width: Math.min(unsupportedVersionColumn.implicitWidth + 40, root.width - 40)
+        height: unsupportedVersionColumn.implicitHeight + 28
+
+        ColumnLayout {
+          id: unsupportedVersionColumn
+          anchors.centerIn: parent
+          width: Math.min(implicitWidth, parent.width - 40)
+          spacing: 8
+
+          Label {
+            text: "flatpak version too old"
+            color: root.theme.danger
+            font.family: root.theme.fontFamily
+            font.pixelSize: root.theme.fontSize
+            font.bold: true
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+          }
+          Label {
+            text: "flatpak-explorer needs flatpak " + root.service.minFlatpakVersion
+              + " or later (found " + (root.service.flatpakVersion || "unknown") + "). Please upgrade flatpak, then recheck."
+            color: root.theme.foreground
+            font.family: root.theme.fontFamily
+            font.pixelSize: root.theme.fontSize
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+          }
+
+          RowLayout {
+            Layout.alignment: Qt.AlignRight
+            Layout.topMargin: 6
+            ActionButton {
+              fontFamily: root.theme.fontFamily
+              fontPixelSize: root.theme.fontSize
+              text: "recheck"
+              textColor: root.theme.accent
+              bold: true
+              onClicked: root.service.checkVersion()
+            }
+          }
+        }
+      }
+    }
   }
 }

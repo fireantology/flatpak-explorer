@@ -10,10 +10,15 @@ import "core" as Core
 // point; Quickshell ignores them here since only shell.qml is loaded.)
 ShellRoot {
   property ThemeDetector themeBridge: ThemeDetector {}
+  // Owned here rather than defaulted inside ExplorerWindow, so exactly one
+  // instance exists per process -- the standalone counterpart to Service.qml
+  // on the Omarchy side.
+  property Core.FlatpakService flatpakService: Core.FlatpakService {}
 
   Core.ExplorerWindow {
     id: explorer
     theme: themeBridge.theme
+    service: flatpakService
     open: true
   }
 

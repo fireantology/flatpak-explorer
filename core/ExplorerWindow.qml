@@ -77,7 +77,14 @@ FloatingWindow {
   // `ipc call explorer toggle` brings the window straight back.
   onVisibleChanged: if (!visible) root.open = false
 
-  property FlatpakService service: FlatpakService {}
+  // No default instance -- the owner injects one (shell.qml standalone,
+  // Overlay.qml under Omarchy). An inline `FlatpakService {}` default here
+  // gets constructed, and runs its own startup queries, *even when an adapter
+  // overrides this property*: the host's panel Loader injects in onLoaded,
+  // which fires only after the component tree is already built. That cost a
+  // second FlatpakService -- and a redundant list/remote-list/remote-ls/du
+  // battery -- on every summon, living alongside the real one.
+  property FlatpakService service: null
 
   // Jumping back to Installed + clearing the filter after a successful
   // install means "what I just got" is immediately visible without an

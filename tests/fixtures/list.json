@@ -1,0 +1,5 @@
+[
+  { "name": "Prism Launcher", "description": "Minecraft launcher", "application_id": "org.prismlauncher.PrismLauncher", "version": "9.4", "branch": "stable", "installation": "user" },
+  { "name": "GIMP", "description": "Image editor", "application_id": "org.gimp.GIMP", "version": "2.10.38", "branch": "stable", "installation": "system" },
+  { "name": "Bottles", "description": "", "application_id": "com.usebottles.bottles", "version": "51.13", "branch": "stable", "installation": "user" }
+]

@@ -1,0 +1,4 @@
+[
+  { "name": "flathub", "title": "Flathub", "url": "https://dl.flathub.org/repo/", "priority": "1", "options": "no-filter xa.title=Flathub" },
+  { "name": "flathub-beta", "title": "", "url": "https://dl.flathub.org/beta-repo/", "priority": "1", "options": "no-filter disabled" }
+]

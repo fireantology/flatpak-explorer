@@ -1,0 +1,91 @@
+#!/bin/sh
+# Fake `flatpak`, put on PATH by run-tests.sh.
+#
+# Every invocation in core/FlatpakService.qml is either ["flatpak", ...] or
+# `sh -c "exec flatpak ... | head -c N"`, and both resolve through PATH at exec
+# time -- so this intercepts all of them with no change to the app itself.
+#
+# It does two things: record its own argv (so tests can assert on the exact
+# command that was built, e.g. that --user/--system is always explicit), and
+# answer with a canned fixture. Which answer comes back is read fresh from the
+# control file on every call, so a test can switch scenarios mid-run.
+
+log="${FLATPAK_EXPLORER_TEST_LOG:-/dev/null}"
+printf '%s\t' "$@" >> "$log"
+printf '\n' >> "$log"
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+fixtures="$here/../fixtures"
+
+scenario=default
+if [ -n "${FLATPAK_EXPLORER_TEST_CONTROL:-}" ] && [ -f "$FLATPAK_EXPLORER_TEST_CONTROL" ]; then
+  scenario=$(cat "$FLATPAK_EXPLORER_TEST_CONTROL")
+fi
+
+# Enough output to blow past FlatpakService.listingCapChars (8 MiB), so the
+# `head -c` cap and the overflowed() discard path get exercised for real.
+flood() { yes 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' | head -c 9000000; }
+
+# Scope flag the caller passed, for the per-scope listing commands.
+scope=unknown
+for arg in "$@"; do
+  case "$arg" in
+    --user) scope=user ;;
+    --system) scope=system ;;
+  esac
+done
+
+case "$1" in
+  --version)
+    case "$scenario" in
+      oldversion) echo "Flatpak 1.9.2" ;;
+      unparseableversion) echo "Flatpak (git build)" ;;
+      *) echo "Flatpak 1.18.2" ;;
+    esac
+    ;;
+
+  list)
+    case "$scenario" in
+      malformed) printf '%s' '[{"name": "truncated"' ;;
+      overflow) flood ;;
+      *) cat "$fixtures/list.json" ;;
+    esac
+    ;;
+
+  search)
+    case "$scenario" in
+      malformed) printf '%s' 'not json at all' ;;
+      overflow) flood ;;
+      emptysearch) printf '%s' '[]' ;;
+      *) cat "$fixtures/search.json" ;;
+    esac
+    ;;
+
+  remote-list)
+    case "$scenario" in
+      overflow) flood ;;
+      *) cat "$fixtures/remote-list-$scope.json" 2>/dev/null || printf '%s' '[]' ;;
+    esac
+    ;;
+
+  remote-ls)
+    case "$scenario" in
+      overflow) flood ;;
+      *) cat "$fixtures/updates-$scope.json" 2>/dev/null || printf '%s' '[]' ;;
+    esac
+    ;;
+
+  install|uninstall|update|remote-add|remote-delete|remote-modify|repair)
+    echo "Looking for matches..."
+    echo "Installing 1/1..."
+    if [ "$scenario" = "failmutate" ]; then
+      echo "error: Unable to load summary from remote flathub: Network unreachable" >&2
+      exit 1
+    fi
+    ;;
+
+  *)
+    echo "stub: unhandled subcommand '$1'" >&2
+    exit 2
+    ;;
+esac

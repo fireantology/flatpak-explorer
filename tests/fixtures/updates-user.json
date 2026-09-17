@@ -1,0 +1,4 @@
+[
+  { "name": "Prism Launcher", "application_id": "org.prismlauncher.PrismLauncher", "version": "9.5", "branch": "stable" },
+  { "name": "Mesa", "application_id": "org.freedesktop.Platform.GL.default", "version": "24.2.8", "branch": "24.08" }
+]

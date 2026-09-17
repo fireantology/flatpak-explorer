@@ -1,0 +1,4 @@
+[
+  { "name": "flathub", "title": "Flathub", "url": "https://dl.flathub.org/repo/", "priority": "1", "options": "" },
+  { "name": "fedora", "title": "Fedora Flatpaks", "url": "oci+https://registry.fedoraproject.org", "priority": "1", "options": "no-enumerate" }
+]

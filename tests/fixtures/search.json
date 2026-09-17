@@ -1,0 +1,4 @@
+[
+  { "name": "Kdenlive", "description": "Video editor", "application_id": "org.kde.kdenlive", "version": "24.08.3", "branch": "stable", "remotes": "flathub" },
+  { "name": "Krita", "description": "Digital painting", "application_id": "org.kde.krita", "version": "5.2.6", "branch": "stable", "remotes": "flathub,flathub-beta" }
+]

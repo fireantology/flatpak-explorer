@@ -148,6 +148,22 @@ quickshell -p /path/to/flatpak-explorer
 Every `flatpak` command this app runs, plus its outcome, is logged with a
 `[flatpak-explorer]` prefix — e.g.
 
+### Automated tests
+
+```bash
+./run-tests.sh          # -v to also see everything quickshell prints
+```
+
+Getting on for 200 assertions: `FlatpakService`'s parsing, scope selection,
+output caps and busy-serialization; `ThemeDetector`'s three-layer theme
+resolution; and `ExplorerWindow`'s per-tab models and confirm-arming. They run
+inside a real `quickshell` process (Quickshell's QML types only exist inside
+that binary, so `qmltestrunner` can't load them) against a fake `flatpak` on
+`PATH` — your own Flatpak installation is never touched, and the harness
+refuses to start unless `run-tests.sh` put that fake in place.
+
+### Testing by hand
+
 Since it's a real `flatpak` CLI wrapper, testing install/update/remove
 against your actual Flatpak state is expected — that's the point. A few
 things worth knowing when you do:
@@ -179,6 +195,13 @@ core/
   Theme.qml                 Fallback color palette
 packaging/
   flatpak-explorer.desktop  App-launcher entry
+run-tests.sh               Runs the test suite (the only supported way in)
+tests.qml                  Test entry point -- at the root, so it can import core/
+tests/
+  Harness.qml               Assertions, async stepping, pass/fail reporting
+  *Tests.qml                The tests themselves, one file per layer
+  stub/                     Fake flatpak + du, put on PATH by run-tests.sh
+  fixtures/                 Canned command output the stub replies with
 ```
 
 `core/` has no Omarchy dependency at all; every other file at the repo root

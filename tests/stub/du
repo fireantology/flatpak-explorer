@@ -1,0 +1,7 @@
+#!/bin/sh
+# Fake `du`, for FlatpakService.diskUsageProc -- the one endpoint that shells
+# out to something other than flatpak itself.
+case "$2" in
+  /var/lib/flatpak) printf '100M\t%s\n' "$2" ;;
+  *) printf '200M\t%s\n' "$2" ;;
+esac

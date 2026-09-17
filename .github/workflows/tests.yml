@@ -1,0 +1,57 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+
+    env:
+      XDG_RUNTIME_DIR: /tmp/xdg
+
+    steps:
+      - name: Install quickshell and a headless compositor
+        run: pacman -Syu --noconfirm --needed quickshell weston git
+
+      - uses: actions/checkout@v4
+
+      - name: Versions
+        continue-on-error: true
+        run: |
+          command -v quickshell weston bash timeout || true
+          quickshell --version || echo "quickshell --version exited $?"
+          weston --version || echo "weston --version exited $?"
+
+      - name: Start a headless compositor
+        run: |
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+
+          nohup weston --backend=headless --socket=wayland-ci --no-config --idle-time=0 \
+            > /tmp/weston.log 2>&1 &
+
+          for _ in $(seq 1 100); do
+            [ -S "$XDG_RUNTIME_DIR/wayland-ci" ] && break
+            sleep 0.2
+          done
+
+          if [ ! -S "$XDG_RUNTIME_DIR/wayland-ci" ]; then
+            echo "no wayland socket appeared in $XDG_RUNTIME_DIR"
+            ls -la "$XDG_RUNTIME_DIR" || true
+            echo "--- weston output ---"
+            cat /tmp/weston.log || true
+            exit 1
+          fi
+
+          echo "WAYLAND_DISPLAY=wayland-ci" >> "$GITHUB_ENV"
+
+      - name: Run the test suite
+        run: ./run-tests.sh
+
+      - name: Compositor output
+        if: failure()
+        run: cat /tmp/weston.log || true

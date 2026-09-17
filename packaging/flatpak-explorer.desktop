@@ -2,7 +2,7 @@
 Type=Application
 Name=Flatpak Explorer
 Comment=Browse, search, install, and remove Flatpak apps
-Exec=quickshell -p /usr/share/flatpak-explorer/standalone
+Exec=quickshell -p /usr/share/flatpak-explorer
 Icon=flatpak
 Categories=System;PackageManager;
 Terminal=false

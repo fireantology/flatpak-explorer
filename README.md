@@ -25,6 +25,59 @@ Omarchy shell plugin with native theme integration.
   refresh glyph whenever a Flatpak update is pending, click to open the
   window. 
 
+## Keybindings
+
+It's driven from the keyboard, but everything is reachable with the mouse too.
+Click a tab to switch to it, click (or just hover) a row to select it, and
+click any action button to run it. A button that's asking for confirmation
+(`y, remove?`) confirms when you click it again.
+
+| Key | Action |
+|---|---|
+| `Tab` / `Shift+Tab` | next / previous tab |
+| `↑` `↓` | move the selection (Installed, Search, Repos) |
+| `←` `→` | move the selection on Maintenance — its actions are cards, not rows |
+| `Ctrl+P` / `Ctrl+N` | move the selection, on any tab |
+| `Enter` | see below — it depends on the tab |
+| `Ctrl+Enter` | update everything (asks first) |
+| `Delete` | remove the selected app or repo (asks first) |
+| `Esc` | clear the input line, or close the window if it's already empty |
+| anything else | types into the input line: filter, search query, or wizard field |
+
+**What `Enter` does**, per tab:
+
+- **Installed** — updates the selected app, if an update is pending for it.
+- **Search** — runs the query if you haven't searched it yet; otherwise acts on
+  the selected result (installs it, or updates it if it's already installed).
+  Search is *only* ever sent when you press Enter — never as you type — so it's
+  one deliberate network call, not one per keystroke.
+- **Maintenance** — runs the selected action.
+- **Repos** — nothing; use the keys below.
+
+**On the Repos tab:**
+
+| Key | Action |
+|---|---|
+| `a` | add a repository — a three-step prompt: name, then url, then scope |
+| `e` or `Space` | enable / disable the selected repository |
+| `Delete` | remove the selected repository (asks first) |
+
+Inside the add-repository prompt, `Enter` moves to the next step and `Esc`
+cancels the whole thing. At the last step, `u` (or just `Enter`) adds it for
+your user, `s` adds it system-wide — which needs a polkit authorization.
+
+**When something asks for confirmation**, `←`/`→`/`Tab` switch between Cancel
+and Confirm, `Enter` runs whichever is selected, and `Esc` cancels. It always
+opens on **Cancel**, and there's deliberately no `y` shortcut — a single
+keystroke should never be able to uninstall something by accident.
+
+**When a search result is available from more than one repository**, you'll be
+asked which to install from: press `1`–`9` to pick, `Esc` to cancel.
+
+**While an action is running** the window is blocked and shows the live
+`flatpak` output; every key is ignored until it finishes. The output popup that
+some maintenance actions leave behind closes with `Enter` or `Esc`.
+
 ## Install
 
 ### Standalone (any Hyprland / wlroots desktop)

@@ -1,16 +1,6 @@
 import QtQuick
 import Quickshell.Io
 
-// Host-agnostic Flatpak backend: shells out to the `flatpak` CLI via -j/
-// --json output (stable field names, no ad-hoc column parsing needed), so
-// it needs nothing Hyprland- or Omarchy-specific and works wherever
-// `flatpak` is on PATH -- which is checked once at startup
-// (checkFlatpakAvailable) before anything else runs, so a machine without
-// flatpak installed gets one clear message instead of a pile of failed
-// Process launches. New installs default to --user scope to avoid a
-// polkit prompt; operations on an *existing* install (uninstall, update)
-// use that install's own recorded scope instead of assuming --user, since
-// a remote (and the apps from it) can just as easily be system-wide.
 QtObject {
   id: root
 
@@ -20,12 +10,6 @@ QtObject {
   property var availableUpdates: []
   property string systemDiskUsage: "?"
   property string userDiskUsage: "?"
-  // Whether `flatpak` was found on PATH -- checked once at startup (see
-  // checkFlatpakAvailable/Component.onCompleted below) before any other
-  // `flatpak` invocation is attempted, since every other Process here would
-  // otherwise fail to even start. `availabilityChecked` distinguishes "not
-  // checked yet" from "checked, and it's missing" so the UI doesn't flash a
-  // false "not found" message before the check has actually run.
   property bool flatpakAvailable: true
   property bool availabilityChecked: false
   // Same "not checked yet" vs "checked, and it's unsupported" distinction
@@ -36,27 +20,20 @@ QtObject {
   property string flatpakVersion: ""
   property bool flatpakVersionChecked: false
   property bool flatpakVersionSupported: true
-  // Every mutating action's stdout streams into this live, in order, as it
-  // runs -- prefixed with the exact `flatpak ...` command line so the busy
-  // popup can show real progress (and what's actually being run) instead of
-  // just a static "Installing..." message. Reset at the start of each
-  // top-level action (beginLiveLog) and appended to per extra leg for
-  // multi-step actions like updateAll (appendLiveLogCommand).
   property string liveLog: ""
-  // Maintenance actions (cleanUnused/repair) have no single row to show
-  // progress against, unlike install/uninstall/update -- so once both legs
-  // finish, a snapshot of liveLog is kept here for the UI to show as its
-  // own popup that survives after the busy overlay closes. lastActionLabel
-  // names which one, for that popup's title; "" means none is pending.
   property string lastActionLabel: ""
   property string lastActionOutput: ""
   property bool busy: false
-  // appId or remote name the in-flight action targets ("" for updateAll,
-  // which has no single target) -- lets the UI highlight that one specific
-  // row as "in progress" instead of just a generic busy state.
   property string busyTarget: ""
   property string busyVerb: "" // "install"/"uninstall"/"update"/"add"/"remove"/"enable"/"disable"/"updateAll"
   property string statusMessage: ""
+
+  readonly property int listingCapChars: 8 * 1024 * 1024
+  readonly property int liveLogCapChars: 256 * 1024
+ 
+  readonly property int liveLogTrimToChars: 192 * 1024
+  readonly property int excerptChars: 2000
+  readonly property int errorLineChars: 400
 
   signal actionFinished(bool success, string message, string verb)
 
@@ -71,6 +48,15 @@ QtObject {
   function logOutcome(name, exitCode, stderrText) {
     if (exitCode === 0) { log(name + ": ok"); return }
     logError(name + ": exit " + exitCode + " -- " + shortError(stderrText, "(no stderr)"))
+  }
+
+  // Listing commands run through a `head -c` pipe, so the exit code belongs to
+  // `head` and is always 0 -- stderr is the only signal left that one of them
+  // failed (a network error from remote-ls, say), and it used to be discarded
+  // entirely.
+  function logStderr(name, stderrText) {
+    if (String(stderrText || "").trim().length === 0) return
+    logError(name + ": " + shortError(stderrText, ""))
   }
 
   function isInstalled(appId) {
@@ -107,15 +93,68 @@ QtObject {
   // terminal to find out why.
   function shortError(stderrText, fallback) {
     var lines = String(stderrText || "").split("\n").map(function(l) { return l.trim() }).filter(function(l) { return l.length > 0 })
-    return lines.length > 0 ? lines[lines.length - 1] : fallback
+    return lines.length > 0 ? excerpt(lines[lines.length - 1], errorLineChars) : fallback
   }
 
+  // A parse failure on a large response must not put the whole response in the
+  // log -- CLAUDE.md tells users to `tee` that log and paste it into a bug
+  // report. The head is where a shape problem shows: a renamed field, an HTML
+  // error page, a flatpak that ignored `-j`.
+  function excerpt(text, limit) {
+    var s = String(text || "")
+    var max = limit || excerptChars
+    return s.length <= max ? s : s.slice(0, max) + "... [truncated, " + s.length + " chars total]"
+  }
+
+  // Bounds a listing command's stdout at the source. StdioCollector has no
+  // size limit and only hands its buffer over once the stream ends, so a
+  // length check on receipt would cap what's retained, never what was held --
+  // `head -c` makes the kernel enforce it instead, and SIGPIPEs flatpak the
+  // moment the cap is hit, so there's no kill path to write. Only stdout is
+  // piped; stderr still comes back untouched.
+  //
+  // `arg` is passed through argv as "$1", never interpolated into the script,
+  // so a search query can't reach the shell as code.
+  function cappedCommand(script, arg) {
+    var cmd = ["sh", "-c", "exec " + script + " | head -c " + listingCapChars]
+    if (arg !== undefined) { cmd.push("sh"); cmd.push(arg) }
+    return cmd
+  }
+
+  // head -c truncates at exactly the cap, so a response that reaches it was
+  // almost certainly cut -- and whatever's left is unparseable JSON anyway.
+  function overflowed(text) { return String(text || "").length >= listingCapChars }
+
   function beginLiveLog(command) {
+    _liveLogDropped = 0
     liveLog = "$ " + command.join(" ") + "\n"
   }
 
   function appendLiveLogCommand(command) {
-    liveLog += "\n$ " + command.join(" ") + "\n"
+    appendLiveLog("\n$ " + command.join(" "))
+  }
+
+  property int _liveLogDropped: 0
+
+  // Tail retention with the command line pinned at the top. This is *progress*
+  // output and both consumers auto-scroll to the end, so dropping from the
+  // middle is the only truncation that doesn't fight the UI -- keeping the head
+  // instead would park the viewport on content that no longer grows and look
+  // frozen. The first line ("$ flatpak ...") survives unconditionally: showing
+  // which command is running is the whole reason the popup exists.
+  function appendLiveLog(line) {
+    var next = liveLog + line + "\n"
+    if (next.length <= liveLogCapChars) { liveLog = next; return }
+    var headEnd = next.indexOf("\n") + 1
+    var cut = next.length - liveLogTrimToChars
+    var resume = next.indexOf("\n", cut) // resume on a line boundary, not mid-line
+    if (resume === -1 || resume + 1 >= next.length) resume = cut - 1
+    _liveLogDropped += (resume + 1) - headEnd
+    // The previous marker always sits between headEnd and cut, so the same
+    // slice that drops the stale body drops it too -- exactly one survives.
+    liveLog = next.slice(0, headEnd)
+      + "[... " + _liveLogDropped + " characters of earlier output truncated ...]\n"
+      + next.slice(resume + 1)
   }
 
   function isUpdatable(appId) {
@@ -162,6 +201,10 @@ QtObject {
   }
 
   function checkUpdates() {
+    // Clear both slots first, or a second refresh can merge a fresh system
+    // result against the *previous* run's user result. Live path: updateApp/
+    // updateAll re-enter here once an update finishes.
+    _pendingUpdateRows = ({ system: null, user: null })
     if (!updatesUserProc.running) updatesUserProc.running = true
     if (!updatesSystemProc.running) updatesSystemProc.running = true
   }
@@ -181,7 +224,10 @@ QtObject {
       return
     }
     searchProc.running = false
-    searchProc.command = ["flatpak", "search", "--columns=name,description,application,version,branch,remotes", "-j", query]
+    // The query reaches the shell as "$1" via argv, never spliced into the
+    // script text; `--` keeps a query starting with `-` from being read as a
+    // flag.
+    searchProc.command = cappedCommand("flatpak search --columns=name,description,application,version,branch,remotes -j -- \"$1\"", query)
     log("search: " + JSON.stringify(searchProc.command))
     searchProc.running = true
   }
@@ -311,17 +357,19 @@ QtObject {
     setRemoteEnabledProc.running = true
   }
 
-  function mergeUpdates(systemText, userText) {
-    var merged = []
-    function collect(text, scope) {
-      var rows
-      try { rows = JSON.parse(text || "[]") } catch (e) { root.logError("mergeUpdates(" + scope + "): failed to parse `flatpak remote-ls -j` output: " + e + " -- raw: " + text); rows = [] }
-      for (var i = 0; i < rows.length; i++) {
-        merged.push({ appId: rows[i].application_id, name: rows[i].name, version: rows[i].version, scope: scope })
-      }
-    }
-    collect(systemText, "system")
-    collect(userText, "user")
+  // Parses at the point of arrival, mirroring _parseRemotes -- so what gets
+  // retained between the two update-check legs is four fields per updatable
+  // ref, not the raw pretty-printed JSON the two legs returned.
+  function _parseUpdates(text, scope) {
+    var rows
+    try { rows = JSON.parse(text || "[]") } catch (e) { logError("_parseUpdates(" + scope + "): failed to parse `flatpak remote-ls -j` output: " + e + " -- raw: " + excerpt(text)); rows = [] }
+    return rows.map(function(r) {
+      return { appId: r.application_id, name: r.name, version: r.version, scope: scope }
+    })
+  }
+
+  function mergeUpdates(systemRows, userRows) {
+    var merged = (systemRows || []).concat(userRows || [])
     // Only surface updates for refs the user actually sees as an app --
     // bare runtime bumps (Mesa, Platform, ...) update implicitly as
     // dependencies when their owning app updates.
@@ -330,7 +378,10 @@ QtObject {
     return result
   }
 
-  property var _pendingUpdateTexts: ({ system: null, user: null })
+  // Held only until both legs have reported and the merge below has run --
+  // but deliberately *not* cleared afterwards, since listProc re-runs the
+  // merge against a fresh installed set (see the note in listProc).
+  property var _pendingUpdateRows: ({ system: null, user: null })
 
   property Process flatpakCheckProc: Process {
     command: ["sh", "-c", "command -v flatpak >/dev/null 2>&1"]
@@ -362,37 +413,55 @@ QtObject {
         if (root.flatpakVersionSupported) {
           root.log("versionCheckProc: flatpak " + root.flatpakVersion + " >= required " + root.minFlatpakVersion)
         } else {
-          root.logError("versionCheckProc: flatpak " + (root.flatpakVersion || "(unparseable: " + text + ")") + " is below required " + root.minFlatpakVersion)
+          root.logError("versionCheckProc: flatpak " + (root.flatpakVersion || "(unparseable: " + root.excerpt(text, 200) + ")") + " is below required " + root.minFlatpakVersion)
         }
       }
     }
   }
 
   property Process listProc: Process {
-    command: ["flatpak", "list", "--app", "--columns=name,description,application,version,branch,installation", "-j"]
+    command: root.cappedCommand("flatpak list --app --columns=name,description,application,version,branch,installation -j")
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: root.logStderr("listProc", listProc.stderr.text)
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var rows
-        try { rows = JSON.parse(text || "[]") } catch (e) { root.logError("listProc: failed to parse `flatpak list -j` output: " + e + " -- raw: " + text); rows = [] }
+        var rows = []
+        if (root.overflowed(text)) {
+          root.logError("listProc: `flatpak list -j` output hit the " + root.listingCapChars + " char cap -- discarding")
+          root.statusMessage = "Installed list: too much output, aborted"
+        } else {
+          try { rows = JSON.parse(text || "[]") } catch (e) { root.logError("listProc: failed to parse `flatpak list -j` output: " + e + " -- raw: " + root.excerpt(text)); rows = [] }
+        }
         root.installedApps = rows.map(function(r) {
           return { name: r.name, description: r.description, appId: r.application_id, version: r.version, branch: r.branch, installation: r.installation }
         })
         root.log("listProc: " + root.installedApps.length + " installed app(s)")
         // Re-filter with the fresh installed set now, rather than racing it
         // against the (usually slower, network-bound) update-check calls.
-        if (root._pendingUpdateTexts.system !== null || root._pendingUpdateTexts.user !== null)
-          root.availableUpdates = root.mergeUpdates(root._pendingUpdateTexts.system, root._pendingUpdateTexts.user)
+        if (root._pendingUpdateRows.system !== null || root._pendingUpdateRows.user !== null)
+          root.availableUpdates = root.mergeUpdates(root._pendingUpdateRows.system, root._pendingUpdateRows.user)
       }
     }
   }
 
   property Process searchProc: Process {
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: root.logStderr("searchProc", searchProc.stderr.text)
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var rows
-        try { rows = JSON.parse(text || "[]") } catch (e) { root.logError("searchProc: failed to parse `flatpak search -j` output: " + e + " -- raw: " + text); rows = [] }
+        var rows = []
+        if (root.overflowed(text)) {
+          root.logError("searchProc: `flatpak search -j` output hit the " + root.listingCapChars + " char cap -- discarding")
+          root.statusMessage = "Search: too much output, aborted"
+        } else {
+          try { rows = JSON.parse(text || "[]") } catch (e) { root.logError("searchProc: failed to parse `flatpak search -j` output: " + e + " -- raw: " + root.excerpt(text)); rows = [] }
+        }
+        // Assign unconditionally, even when empty: ExplorerWindow clears its
+        // searchPending flag only on searchResults changing, and while that
+        // flag is set the busy overlay swallows every key -- so a path that
+        // returns without assigning leaves the UI with no way out.
         root.searchResults = rows.map(function(r) {
           return { name: r.name, description: r.description, appId: r.application_id, version: r.version, branch: r.branch, remotes: r.remotes }
         })
@@ -403,7 +472,7 @@ QtObject {
 
   function _parseRemotes(text, scope) {
     var rows
-    try { rows = JSON.parse(text || "[]") } catch (e) { logError("_parseRemotes(" + scope + "): failed to parse `flatpak remote-list -j` output: " + e + " -- raw: " + text); rows = [] }
+    try { rows = JSON.parse(text || "[]") } catch (e) { logError("_parseRemotes(" + scope + "): failed to parse `flatpak remote-list -j` output: " + e + " -- raw: " + excerpt(text)); rows = [] }
     return rows.map(function(r) {
       var opts = String(r.options || "")
       return { name: r.name, title: r.title || r.name, url: r.url, priority: r.priority, scope: scope, enabled: opts.indexOf("disabled") === -1 }
@@ -417,11 +486,17 @@ QtObject {
     // with no scope flag actually returns *both* scopes combined once a
     // user remote exists (verified live), which silently duplicated any
     // user-scope remote here, mislabeled as system-scope.
-    command: ["flatpak", "remote-list", "--system", "--show-disabled", "--columns=name,title,url,priority,options", "-j"]
+    command: root.cappedCommand("flatpak remote-list --system --show-disabled --columns=name,title,url,priority,options -j")
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: root.logStderr("remoteListSystemProc", remoteListSystemProc.stderr.text)
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        root._remoteLists.system = root._parseRemotes(text, "system")
+        if (root.overflowed(text)) {
+          root.logError("remoteListSystemProc: output hit the " + root.listingCapChars + " char cap -- discarding")
+          root.statusMessage = "System remotes: too much output, aborted"
+        }
+        root._remoteLists.system = root.overflowed(text) ? [] : root._parseRemotes(text, "system")
         root.remotes = root._remoteLists.system.concat(root._remoteLists.user)
         root.log("remoteListSystemProc: " + root._remoteLists.system.length + " system remote(s)")
       }
@@ -429,11 +504,17 @@ QtObject {
   }
 
   property Process remoteListUserProc: Process {
-    command: ["flatpak", "remote-list", "--user", "--show-disabled", "--columns=name,title,url,priority,options", "-j"]
+    command: root.cappedCommand("flatpak remote-list --user --show-disabled --columns=name,title,url,priority,options -j")
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: root.logStderr("remoteListUserProc", remoteListUserProc.stderr.text)
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        root._remoteLists.user = root._parseRemotes(text, "user")
+        if (root.overflowed(text)) {
+          root.logError("remoteListUserProc: output hit the " + root.listingCapChars + " char cap -- discarding")
+          root.statusMessage = "User remotes: too much output, aborted"
+        }
+        root._remoteLists.user = root.overflowed(text) ? [] : root._parseRemotes(text, "user")
         root.remotes = root._remoteLists.system.concat(root._remoteLists.user)
         root.log("remoteListUserProc: " + root._remoteLists.user.length + " user remote(s)")
       }
@@ -442,31 +523,43 @@ QtObject {
 
   property Process updatesSystemProc: Process {
     // --system explicit -- see the same note on remoteListSystemProc above.
-    command: ["flatpak", "remote-ls", "--system", "--updates", "-j"]
+    command: root.cappedCommand("flatpak remote-ls --system --updates -j")
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: root.logStderr("updatesSystemProc", updatesSystemProc.stderr.text)
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        root._pendingUpdateTexts.system = text
-        if (root._pendingUpdateTexts.user !== null)
-          root.availableUpdates = root.mergeUpdates(root._pendingUpdateTexts.system, root._pendingUpdateTexts.user)
+        if (root.overflowed(text)) {
+          root.logError("updatesSystemProc: output hit the " + root.listingCapChars + " char cap -- discarding")
+          root.statusMessage = "System updates: too much output, aborted"
+        }
+        root._pendingUpdateRows.system = root.overflowed(text) ? [] : root._parseUpdates(text, "system")
+        if (root._pendingUpdateRows.user !== null)
+          root.availableUpdates = root.mergeUpdates(root._pendingUpdateRows.system, root._pendingUpdateRows.user)
       }
     }
   }
 
   property Process updatesUserProc: Process {
-    command: ["flatpak", "remote-ls", "--user", "--updates", "-j"]
+    command: root.cappedCommand("flatpak remote-ls --user --updates -j")
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: root.logStderr("updatesUserProc", updatesUserProc.stderr.text)
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        root._pendingUpdateTexts.user = text
-        if (root._pendingUpdateTexts.system !== null)
-          root.availableUpdates = root.mergeUpdates(root._pendingUpdateTexts.system, root._pendingUpdateTexts.user)
+        if (root.overflowed(text)) {
+          root.logError("updatesUserProc: output hit the " + root.listingCapChars + " char cap -- discarding")
+          root.statusMessage = "User updates: too much output, aborted"
+        }
+        root._pendingUpdateRows.user = root.overflowed(text) ? [] : root._parseUpdates(text, "user")
+        if (root._pendingUpdateRows.system !== null)
+          root.availableUpdates = root.mergeUpdates(root._pendingUpdateRows.system, root._pendingUpdateRows.user)
       }
     }
   }
 
   property Process installProc: Process {
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
@@ -482,7 +575,7 @@ QtObject {
   }
 
   property Process uninstallProc: Process {
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
@@ -498,7 +591,7 @@ QtObject {
   }
 
   property Process updateAppProc: Process {
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
@@ -515,7 +608,7 @@ QtObject {
 
   property Process updateAllSystemProc: Process {
     command: ["flatpak", "update", "-y"]
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       root.logOutcome("updateAll(system)", exitCode, updateAllSystemProc.stderr.text)
@@ -527,7 +620,7 @@ QtObject {
 
   property Process updateAllUserProc: Process {
     command: ["flatpak", "update", "-y", "--user"]
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       root.busy = false
@@ -543,7 +636,7 @@ QtObject {
 
   property Process cleanUnusedSystemProc: Process {
     command: ["flatpak", "uninstall", "-y", "--unused", "--system"]
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       root.logOutcome("cleanUnused(system)", exitCode, cleanUnusedSystemProc.stderr.text)
@@ -555,7 +648,7 @@ QtObject {
 
   property Process cleanUnusedUserProc: Process {
     command: ["flatpak", "uninstall", "-y", "--unused", "--user"]
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       root.busy = false
@@ -573,7 +666,7 @@ QtObject {
 
   property Process repairSystemProc: Process {
     command: ["flatpak", "repair", "--system"]
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       root.logOutcome("repair(system)", exitCode, repairSystemProc.stderr.text)
@@ -585,7 +678,7 @@ QtObject {
 
   property Process repairUserProc: Process {
     command: ["flatpak", "repair", "--user"]
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       root.busy = false
@@ -614,7 +707,7 @@ QtObject {
   }
 
   property Process addRemoteProc: Process {
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
@@ -630,7 +723,7 @@ QtObject {
   }
 
   property Process removeRemoteProc: Process {
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
@@ -646,7 +739,7 @@ QtObject {
   }
 
   property Process setRemoteEnabledProc: Process {
-    stdout: SplitParser { onRead: function(line) { root.liveLog += line + "\n" } }
+    stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb

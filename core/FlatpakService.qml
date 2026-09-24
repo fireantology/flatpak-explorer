@@ -638,7 +638,7 @@ QtObject {
   }
 
   property Process updateAllSystemProc: Process {
-    readonly property var argv: ["flatpak", "update", "-y"]
+    readonly property var argv: ["flatpak", "update", "-y", "--system"]
     command: root.stderrTailedCommand(argv)
     stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }

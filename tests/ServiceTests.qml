@@ -28,6 +28,7 @@ QtObject {
       optionShapedIds,
       busySerialization,
       failurePath,
+      twoStepScopes,
       malformedJson,
       overflowDiscard,
       stderrFlood,
@@ -258,6 +259,41 @@ QtObject {
         next()
       },
       function(next) { h.setScenario("default", next) }
+    ], done)
+  }
+
+  // updateAll/cleanUnused/repair: one --system leg, one --user leg, and never
+  // a scopeless one -- `flatpak update` with no flag updates *both*
+  // installations (flatpak-update(1)), which is what updateAll's system leg
+  // silently did until it got an explicit --system.
+  function twoStepScopes(done) {
+    h.group("two-step actions pass an explicit scope")
+    var verbs = ["update", "uninstall", "repair"]
+    h.sequence([
+      function(next) { h.clearArgvLog(next) },
+      function(next) { root.sawAction = false; svc.updateAll(); next() },
+      function(next) { h.waitFor("updateAll finishes", function() { return !svc.busy && root.sawAction }, next) },
+      function(next) { h.equal("and reports success", root.lastOk, true); next() },
+      function(next) { root.sawAction = false; svc.cleanUnused(); next() },
+      function(next) { h.waitFor("cleanUnused finishes", function() { return !svc.busy && root.sawAction }, next) },
+      function(next) { h.equal("and reports success", root.lastOk, true); next() },
+      function(next) { root.sawAction = false; svc.repair(); next() },
+      function(next) { h.waitFor("repair finishes", function() { return !svc.busy && root.sawAction }, next) },
+      function(next) { h.equal("and reports success", root.lastOk, true); next() },
+      function(next) {
+        h.readArgvLog(function(text) {
+          var mutations = text.split("\n").map(function(l) { return l.split("\t") })
+            .filter(function(a) { return verbs.indexOf(a[0]) !== -1 })
+          verbs.forEach(function(verb) {
+            var runs = mutations.filter(function(a) { return a[0] === verb })
+            h.ok(verb + " runs a --system leg", runs.some(function(a) { return a.indexOf("--system") !== -1 }))
+            h.ok(verb + " runs a --user leg", runs.some(function(a) { return a.indexOf("--user") !== -1 }))
+          })
+          var scopeless = mutations.filter(function(a) { return a.indexOf("--system") === -1 && a.indexOf("--user") === -1 })
+          h.equal("no leg runs without a scope", scopeless.map(function(a) { return a.join(" ").trim() }).join(" | "), "")
+          next()
+        })
+      }
     ], done)
   }
 

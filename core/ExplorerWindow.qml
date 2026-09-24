@@ -370,6 +370,7 @@ FloatingWindow {
         spacing: 14
 
         Label {
+          textFormat: Text.PlainText
           // The tab strip is the functional part of this row; the app name
           // is purely decorative, so it's the first thing to go when
           // there's not enough width for both.
@@ -398,6 +399,7 @@ FloatingWindow {
               border.width: 1
               border.color: active ? root.theme.accent : root.theme.border
               Label {
+                textFormat: Text.PlainText
                 id: tabLabel
                 anchors.centerIn: parent
                 text: modelData
@@ -413,6 +415,7 @@ FloatingWindow {
 
         Item { Layout.fillWidth: true }
         Label {
+          textFormat: Text.PlainText
           // Only post-action feedback ("Installed", an error, ...) -- while
           // an action is actually running the popup below already covers
           // it, so showing the same "Installing..." text up here too would
@@ -441,6 +444,7 @@ FloatingWindow {
         visible: root.activeTab !== 3 && !(root.activeTab === 2 && root.addRemoteStep === 0)
 
         Label {
+          textFormat: Text.PlainText
           text: root.activeTab === 1 ? "search>" : (root.activeTab === 2 ? (root.addRemoteStep === 1 ? "name>" : (root.addRemoteStep === 2 ? "url>" : "scope>")) : "filter>")
           color: root.theme.accent
           font.family: root.theme.fontFamily
@@ -595,6 +599,7 @@ FloatingWindow {
                 spacing: 2
 
                 Label {
+                  textFormat: Text.PlainText
                   // Just the short/pretty title (e.g. "Prism Launcher") --
                   // the reverse-DNS app ID (e.g. org.prismlauncher.PrismLauncher)
                   // used to be shown here too, dominating the row width, which
@@ -602,6 +607,12 @@ FloatingWindow {
                   // package name. The ID is still used internally everywhere
                   // (installs/removes/updates key off modelData.appId) -- it's
                   // just not displayed anymore.
+                  //
+                  // PlainText here and on every other Label: the default,
+                  // AutoText, renders any string containing a known tag as
+                  // markup -- and this name is the remote's own appstream
+                  // data, so `<img src="http://...">` in it made the shell
+                  // fetch that URL just by showing a search result.
                   text: (selected ? "> " : "  ") + modelData.name
                   color: root.theme.foreground
                   font.family: root.theme.fontFamily
@@ -616,6 +627,7 @@ FloatingWindow {
                   Layout.minimumWidth: 0
                 }
                 Label {
+                  textFormat: Text.PlainText
                   // Flathub's own one-line blurb (flatpak list/search
                   // --columns=description) -- not every remote's metadata
                   // includes one, so this just collapses away when empty
@@ -631,6 +643,7 @@ FloatingWindow {
                 }
               }
               Label {
+                textFormat: Text.PlainText
                 // Least essential column -- first to go when narrow, so
                 // name/id/actions keep their room instead of clipping.
                 visible: row.width > 640
@@ -683,6 +696,7 @@ FloatingWindow {
           }
 
           Label {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             visible: appList.count === 0
             text: root.activeTab === 1 ? "no results" : "no flatpaks installed"
@@ -722,6 +736,7 @@ FloatingWindow {
               spacing: 8
 
               Label {
+                textFormat: Text.PlainText
                 text: (selected ? "> " : "  ") + modelData.name
                 color: root.theme.foreground
                 font.family: root.theme.fontFamily
@@ -732,6 +747,7 @@ FloatingWindow {
                 Layout.minimumWidth: 60
               }
               Label {
+                textFormat: Text.PlainText
                 text: modelData.url
                 color: root.theme.muted
                 font.family: root.theme.fontFamily
@@ -742,6 +758,7 @@ FloatingWindow {
                 Layout.minimumWidth: 0
               }
               Label {
+                textFormat: Text.PlainText
                 // Least essential column -- first to go when narrow.
                 visible: repoRow.width > 640
                 text: modelData.scope
@@ -773,6 +790,7 @@ FloatingWindow {
           }
 
           Label {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             visible: repoList.count === 0
             text: "no repositories configured"
@@ -789,6 +807,7 @@ FloatingWindow {
           spacing: 4
 
           Label {
+            textFormat: Text.PlainText
             Layout.fillWidth: true
             Layout.margins: 10
             text: "disk usage -- system: " + root.service.systemDiskUsage + "   user: " + root.service.userDiskUsage
@@ -841,6 +860,7 @@ FloatingWindow {
                   spacing: 8
 
                   Label {
+                    textFormat: Text.PlainText
                     text: modelData.label
                     color: root.theme.foreground
                     font.family: root.theme.fontFamily
@@ -851,6 +871,7 @@ FloatingWindow {
                     Layout.fillWidth: true
                   }
                   Label {
+                    textFormat: Text.PlainText
                     text: modelData.desc
                     color: root.theme.muted
                     font.family: root.theme.fontFamily
@@ -887,6 +908,7 @@ FloatingWindow {
       Rectangle { Layout.fillWidth: true; height: 1; color: root.theme.border }
 
       Label {
+        textFormat: Text.PlainText
         Layout.fillWidth: true
         Layout.margins: 8
         text: root.hintText
@@ -940,6 +962,7 @@ FloatingWindow {
             Layout.fillWidth: true
             spacing: 10
             Label {
+              textFormat: Text.PlainText
               text: root.spinnerFrame
               color: root.theme.accent
               font.family: root.theme.fontFamily
@@ -947,6 +970,7 @@ FloatingWindow {
               font.bold: true
             }
             Label {
+              textFormat: Text.PlainText
               text: root.service.busy ? root.service.statusMessage : ("Searching Flathub for \"" + root.lastSearchedQuery + "\"...")
               color: root.theme.foreground
               font.family: root.theme.fontFamily
@@ -1015,6 +1039,7 @@ FloatingWindow {
           spacing: 14
 
           Label {
+            textFormat: Text.PlainText
             text: root.pendingConfirm ? (root.pendingConfirm.label.charAt(0).toUpperCase() + root.pendingConfirm.label.slice(1)) + "?" : ""
             color: root.theme.foreground
             font.family: root.theme.fontFamily
@@ -1083,6 +1108,7 @@ FloatingWindow {
           spacing: 10
 
           Label {
+            textFormat: Text.PlainText
             text: root.service.lastActionLabel + " -- output"
             color: root.theme.accent
             font.family: root.theme.fontFamily
@@ -1159,6 +1185,7 @@ FloatingWindow {
           spacing: 8
 
           Label {
+            textFormat: Text.PlainText
             text: "flatpak was not found on PATH"
             color: root.theme.danger
             font.family: root.theme.fontFamily
@@ -1168,6 +1195,7 @@ FloatingWindow {
             Layout.fillWidth: true
           }
           Label {
+            textFormat: Text.PlainText
             text: "flatpak-explorer needs the flatpak CLI installed to do anything. Install it with:"
             color: root.theme.foreground
             font.family: root.theme.fontFamily
@@ -1175,11 +1203,11 @@ FloatingWindow {
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
           }
-          Label { text: "  Arch / Manjaro:  sudo pacman -S flatpak"; color: root.theme.muted; font.family: root.theme.fontFamily; font.pixelSize: root.theme.fontSize }
-          Label { text: "  Debian / Ubuntu: sudo apt install flatpak"; color: root.theme.muted; font.family: root.theme.fontFamily; font.pixelSize: root.theme.fontSize }
-          Label { text: "  Fedora:          sudo dnf install flatpak"; color: root.theme.muted; font.family: root.theme.fontFamily; font.pixelSize: root.theme.fontSize }
-          Label { text: "  openSUSE:        sudo zypper install flatpak"; color: root.theme.muted; font.family: root.theme.fontFamily; font.pixelSize: root.theme.fontSize }
-          Label { text: "  other distros:   https://flatpak.org/setup/"; color: root.theme.muted; font.family: root.theme.fontFamily; font.pixelSize: root.theme.fontSize }
+          Label { textFormat: Text.PlainText; text: "  Arch / Manjaro:  sudo pacman -S flatpak"; color: root.theme.muted; font.family: root.theme.fontFamily; font.pixelSize: root.theme.fontSize }
+          Label { textFormat: Text.PlainText; text: "  Debian / Ubuntu: sudo apt install flatpak"; color: root.theme.muted; font.family: root.theme.fontFamily; font.pixelSize: root.theme.fontSize }
+          Label { textFormat: Text.PlainText; text: "  Fedora:          sudo dnf install flatpak"; color: root.theme.muted; font.family: root.theme.fontFamily; font.pixelSize: root.theme.fontSize }
+          Label { textFormat: Text.PlainText; text: "  openSUSE:        sudo zypper install flatpak"; color: root.theme.muted; font.family: root.theme.fontFamily; font.pixelSize: root.theme.fontSize }
+          Label { textFormat: Text.PlainText; text: "  other distros:   https://flatpak.org/setup/"; color: root.theme.muted; font.family: root.theme.fontFamily; font.pixelSize: root.theme.fontSize }
 
           RowLayout {
             Layout.alignment: Qt.AlignRight
@@ -1227,6 +1255,7 @@ FloatingWindow {
           spacing: 8
 
           Label {
+            textFormat: Text.PlainText
             text: "flatpak version too old"
             color: root.theme.danger
             font.family: root.theme.fontFamily
@@ -1236,6 +1265,7 @@ FloatingWindow {
             Layout.fillWidth: true
           }
           Label {
+            textFormat: Text.PlainText
             text: "flatpak-explorer needs flatpak " + root.service.minFlatpakVersion
               + " or later (found " + (root.service.flatpakVersion || "unknown") + "). Please upgrade flatpak, then recheck."
             color: root.theme.foreground

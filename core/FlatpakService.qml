@@ -252,6 +252,11 @@ QtObject {
     searchProc.running = true
   }
 
+  // Every argv below ends its options with `--`: flatpak reads options even
+  // after positional arguments, and the app ids here come from a remote's
+  // appstream data (search results) -- an "id" like `--no-related` must stay
+  // an id, not change what the command does. Same for typed remote names.
+  //
   // Every mutating action below is serialized behind `busy`: flatpak only
   // ever has one of these running at a time, both because a second
   // `flatpak` invocation would just contend with the first (same package
@@ -265,7 +270,7 @@ QtObject {
     statusMessage = "Installing " + appId + "..."
     var remoteName = remote || "flathub"
     installProc.running = false
-    var argv = ["flatpak", "install", "-y", "--" + remoteScope(remoteName), remoteName, appId]
+    var argv = ["flatpak", "install", "-y", "--" + remoteScope(remoteName), "--", remoteName, appId]
     installProc.command = stderrTailedCommand(argv)
     log("install: " + JSON.stringify(argv))
     beginLiveLog(argv)
@@ -279,7 +284,7 @@ QtObject {
     busyVerb = "uninstall"
     statusMessage = "Removing " + appId + "..."
     uninstallProc.running = false
-    var argv = ["flatpak", "uninstall", "-y", "--" + (scope || scopeOf(appId)), appId]
+    var argv = ["flatpak", "uninstall", "-y", "--" + (scope || scopeOf(appId)), "--", appId]
     uninstallProc.command = stderrTailedCommand(argv)
     log("uninstall: " + JSON.stringify(argv))
     beginLiveLog(argv)
@@ -293,7 +298,7 @@ QtObject {
     busyVerb = "update"
     statusMessage = "Updating " + appId + "..."
     updateAppProc.running = false
-    var argv = ["flatpak", "update", "-y", "--" + (scope || scopeOf(appId)), appId]
+    var argv = ["flatpak", "update", "-y", "--" + (scope || scopeOf(appId)), "--", appId]
     updateAppProc.command = stderrTailedCommand(argv)
     log("updateApp: " + JSON.stringify(argv))
     beginLiveLog(argv)
@@ -348,7 +353,7 @@ QtObject {
     busyVerb = "add"
     statusMessage = "Adding " + name + "..."
     addRemoteProc.running = false
-    var argv = ["flatpak", "remote-add", "--if-not-exists", "--" + (scope || "user"), name, url]
+    var argv = ["flatpak", "remote-add", "--if-not-exists", "--" + (scope || "user"), "--", name, url]
     addRemoteProc.command = stderrTailedCommand(argv)
     log("addRemote: " + JSON.stringify(argv))
     beginLiveLog(argv)
@@ -362,7 +367,7 @@ QtObject {
     busyVerb = "removeRemote"
     statusMessage = "Removing " + name + "..."
     removeRemoteProc.running = false
-    var argv = ["flatpak", "remote-delete", "--" + scope, name]
+    var argv = ["flatpak", "remote-delete", "--" + scope, "--", name]
     removeRemoteProc.command = stderrTailedCommand(argv)
     log("removeRemote: " + JSON.stringify(argv))
     beginLiveLog(argv)
@@ -376,7 +381,7 @@ QtObject {
     busyVerb = enabled ? "enable" : "disable"
     statusMessage = (enabled ? "Enabling " : "Disabling ") + name + "..."
     setRemoteEnabledProc.running = false
-    var argv = ["flatpak", "remote-modify", "--" + scope, enabled ? "--enable" : "--disable", name]
+    var argv = ["flatpak", "remote-modify", "--" + scope, enabled ? "--enable" : "--disable", "--", name]
     setRemoteEnabledProc.command = stderrTailedCommand(argv)
     log("setRemoteEnabled: " + JSON.stringify(argv))
     beginLiveLog(argv)

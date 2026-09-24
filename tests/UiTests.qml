@@ -22,6 +22,7 @@ QtObject {
       remoteChoice,
       tabSwitchClears,
       maintenanceDispatch,
+      markupIsInert,
       stop
     ], done)
   }
@@ -31,6 +32,49 @@ QtObject {
     win = winComponent.createObject(root, { service: svc })
     h.ok("the window builds with an injected service", win !== null)
     h.waitFor("its service finishes loading", function() { return svc.installedApps.length === 3 && svc.remotes.length === 4 }, done)
+  }
+
+  // Names and descriptions come from a remote's appstream data, and a Label's
+  // default AutoText renders a string containing a known tag as markup --
+  // `<img src="http://...">` in a search result made the shell fetch it. So
+  // every text item in the window must be PlainText; walking the live tree
+  // (delegates included) catches a new Label that forgets, not just the ones
+  // that exist today.
+  function markupIsInert(done) {
+    h.group("remote text is never rendered as markup")
+    var hostile = "Evil<img src='http://127.0.0.1:9/leak.png'>"
+    win.activeTab = 1
+    svc.searchResults = [{ name: hostile, description: "<b>bold</b> claim", appId: "org.evil.App", version: "1", remotes: "flathub" }]
+    h.waitFor("the hostile result gets a delegate", function() { return root.textItems(win.contentItem).some(function(t) { return t.text.indexOf(hostile) !== -1 }) }, function() {
+      var items = root.textItems(win.contentItem)
+      var rich = items.filter(function(t) { return t.textFormat !== Text.PlainText })
+      h.ok("the walk found the window's text items", items.length > 20, items.length + " found")
+      h.equal("every one of them is PlainText", rich.map(function(t) { return JSON.stringify(t.text) }).join(", "), "")
+      svc.searchResults = []
+      win.activeTab = 0
+      done()
+    })
+  }
+
+  // Anything with a textFormat: Text, Label, TextEdit, TextArea. Recurses
+  // into contentItem too, which is where a ListView keeps its delegates.
+  function textItems(item) {
+    var found = []
+    var seen = []
+    function walk(it) {
+      if (!it || seen.indexOf(it) !== -1) return
+      seen.push(it)
+      // Skipped: the placeholder Qt Controls builds inside every TextField/
+      // TextArea. Its text is only ever one of this file's own literals
+      // (placeholderText), never remote data.
+      var placeholder = String(it).indexOf("QQuickPlaceholderText") === 0
+      if (it.textFormat !== undefined && it.text !== undefined && !placeholder) found.push(it)
+      var kids = it.children || []
+      for (var i = 0; i < kids.length; i++) walk(kids[i])
+      if (it.contentItem) walk(it.contentItem)
+    }
+    walk(item)
+    return found
   }
 
   function stop(done) {

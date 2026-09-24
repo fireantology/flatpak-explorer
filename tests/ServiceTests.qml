@@ -25,6 +25,7 @@ QtObject {
       searchQuoting,
       installScope,
       uninstallScope,
+      optionShapedIds,
       busySerialization,
       failurePath,
       malformedJson,
@@ -164,7 +165,7 @@ QtObject {
           // flathub exists in both scopes in the fixtures; remoteScope() must
           // pick user, so no polkit prompt for a plain install.
           h.equal("installs from the user copy of a dual-scope remote", line,
-            "install\t-y\t--user\tflathub\torg.kde.krita\t")
+            "install\t-y\t--user\t--\tflathub\torg.kde.krita\t")
           next()
         })
       }
@@ -183,13 +184,35 @@ QtObject {
         h.readArgvLog(function(text) {
           var line = text.split("\n")[0] || ""
           h.equal("uses the scope the app is actually installed in", line,
-            "uninstall\t-y\t--system\torg.gimp.GIMP\t")
+            "uninstall\t-y\t--system\t--\torg.gimp.GIMP\t")
           next()
         })
       },
       function(next) {
         h.equal("actionFinished names the verb", root.lastVerb, "uninstall")
         next()
+      }
+    ], done)
+  }
+
+  // flatpak reads options even after positional arguments, and install()'s
+  // app id comes from a remote's appstream data -- so an "id" shaped like a
+  // flag must reach flatpak after `--`, as a positional, never as an option.
+  function optionShapedIds(done) {
+    h.group("option-shaped ids stay positional")
+    h.sequence([
+      function(next) { h.clearArgvLog(next) },
+      function(next) { root.sawAction = false; svc.install("--no-related", "flathub"); next() },
+      function(next) { h.waitFor("the install finishes", function() { return !svc.busy && root.sawAction }, next) },
+      function(next) { root.sawAction = false; svc.addRemote("--no-gpg-verify", "https://example.invalid/x.flatpakrepo", "user"); next() },
+      function(next) { h.waitFor("the remote-add finishes", function() { return !svc.busy && root.sawAction }, next) },
+      function(next) {
+        h.readArgvLog(function(text) {
+          var lines = text.split("\n")
+          h.ok("install puts the id after --", lines.indexOf("install\t-y\t--user\t--\tflathub\t--no-related\t") !== -1, JSON.stringify(lines))
+          h.ok("remote-add puts the name after --", lines.indexOf("remote-add\t--if-not-exists\t--user\t--\t--no-gpg-verify\thttps://example.invalid/x.flatpakrepo\t") !== -1, JSON.stringify(lines))
+          next()
+        })
       }
     ], done)
   }

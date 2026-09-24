@@ -35,8 +35,8 @@ Rectangle {
   implicitHeight: label.implicitHeight + 6
 
   Label {
-    textFormat: Text.PlainText
     id: label
+    textFormat: Text.PlainText
     anchors.centerIn: parent
     color: root.textColor
     font.family: root.fontFamily

@@ -23,6 +23,7 @@ QtObject {
   property string liveLog: ""
   property string lastActionLabel: ""
   property string lastActionOutput: ""
+  property bool lastActionFailed: false
   property bool busy: false
   property string busyTarget: ""
   property string busyVerb: "" // "install"/"uninstall"/"update"/"add"/"remove"/"enable"/"disable"/"updateAll"
@@ -95,6 +96,37 @@ QtObject {
   function shortError(stderrText, fallback) {
     var lines = String(stderrText || "").split("\n").map(function(l) { return l.trim() }).filter(function(l) { return l.length > 0 })
     return lines.length > 0 ? excerpt(lines[lines.length - 1], errorLineChars) : fallback
+  }
+
+  // The last few stderr lines, each clamped -- what the failure popup shows
+  // under the command's own output. One line (shortError) is enough for a
+  // log entry; a person reading why an install failed usually wants the
+  // context flatpak printed just before its final "error:" too.
+  function stderrTail(stderrText, maxLines) {
+    var lines = String(stderrText || "").split("\n").filter(function(l) { return l.trim().length > 0 })
+    return lines.slice(-(maxLines || 20)).map(function(l) { return excerpt(l, errorLineChars) }).join("\n")
+  }
+
+  // Opens ExplorerWindow's result popup, which is keyed off lastActionOutput
+  // being non-empty -- so that is assigned last, once the title and failed
+  // flag it renders with are already in place.
+  function showResult(label, output, failed) {
+    lastActionLabel = label
+    lastActionFailed = failed
+    lastActionOutput = output
+  }
+
+  function failureOutput(stderrText) {
+    var tail = stderrTail(stderrText)
+    return liveLog + (tail.length > 0 ? "\n" + tail : "\n(no error output)")
+  }
+
+  // A listing that hit listingCapChars was discarded rather than parsed, so
+  // the tab it feeds is now empty or stale -- worth an interruption, and it
+  // should only ever happen with a broken or hostile flatpak/remote.
+  function reportOverflow(what) {
+    statusMessage = what + ": too much output, aborted"
+    showResult(what, "flatpak returned more than " + listingCapChars + " characters, so the response was discarded instead of parsed.\n\nThis is far beyond any normal response -- a misbehaving flatpak or remote is the likely cause. The full command is in the log.", true)
   }
 
   // A parse failure on a large response must not put the whole response in the
@@ -480,7 +512,7 @@ QtObject {
         var rows = []
         if (root.overflowed(text)) {
           root.logError("listProc: `flatpak list -j` output hit the " + root.listingCapChars + " char cap -- discarding")
-          root.statusMessage = "Installed list: too much output, aborted"
+          root.reportOverflow("Installed list")
         } else {
           try { rows = JSON.parse(text || "[]") } catch (e) { root.logError("listProc: failed to parse `flatpak list -j` output: " + e + " -- raw: " + root.excerpt(text)); rows = [] }
         }
@@ -505,7 +537,7 @@ QtObject {
         var rows = []
         if (root.overflowed(text)) {
           root.logError("searchProc: `flatpak search -j` output hit the " + root.listingCapChars + " char cap -- discarding")
-          root.statusMessage = "Search: too much output, aborted"
+          root.reportOverflow("Search")
         } else {
           try { rows = JSON.parse(text || "[]") } catch (e) { root.logError("searchProc: failed to parse `flatpak search -j` output: " + e + " -- raw: " + root.excerpt(text)); rows = [] }
         }
@@ -545,7 +577,7 @@ QtObject {
       onStreamFinished: {
         if (root.overflowed(text)) {
           root.logError("remoteListSystemProc: output hit the " + root.listingCapChars + " char cap -- discarding")
-          root.statusMessage = "System remotes: too much output, aborted"
+          root.reportOverflow("System remotes")
         }
         root._remoteLists.system = root.overflowed(text) ? [] : root._parseRemotes(text, "system")
         root.remotes = root._remoteLists.system.concat(root._remoteLists.user)
@@ -563,7 +595,7 @@ QtObject {
       onStreamFinished: {
         if (root.overflowed(text)) {
           root.logError("remoteListUserProc: output hit the " + root.listingCapChars + " char cap -- discarding")
-          root.statusMessage = "User remotes: too much output, aborted"
+          root.reportOverflow("User remotes")
         }
         root._remoteLists.user = root.overflowed(text) ? [] : root._parseRemotes(text, "user")
         root.remotes = root._remoteLists.system.concat(root._remoteLists.user)
@@ -582,7 +614,7 @@ QtObject {
       onStreamFinished: {
         if (root.overflowed(text)) {
           root.logError("updatesSystemProc: output hit the " + root.listingCapChars + " char cap -- discarding")
-          root.statusMessage = "System updates: too much output, aborted"
+          root.reportOverflow("System updates")
         }
         root._pendingUpdateRows.system = root.overflowed(text) ? [] : root._parseUpdates(text, "system")
         if (root._pendingUpdateRows.user !== null)
@@ -600,7 +632,7 @@ QtObject {
       onStreamFinished: {
         if (root.overflowed(text)) {
           root.logError("updatesUserProc: output hit the " + root.listingCapChars + " char cap -- discarding")
-          root.statusMessage = "User updates: too much output, aborted"
+          root.reportOverflow("User updates")
         }
         root._pendingUpdateRows.user = root.overflowed(text) ? [] : root._parseUpdates(text, "user")
         if (root._pendingUpdateRows.system !== null)
@@ -614,12 +646,14 @@ QtObject {
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
+      var target = root.busyTarget
       root.busy = false
       root.busyTarget = ""
       root.busyVerb = ""
       root.logOutcome("install", exitCode, installProc.stderr.text)
       var ok = exitCode === 0
       root.statusMessage = ok ? "Installed" : root.shortError(installProc.stderr.text, "Install failed")
+      if (!ok) root.showResult("Install " + target, root.failureOutput(installProc.stderr.text), true)
       root.actionFinished(ok, root.statusMessage, verb)
       if (ok) root.refreshInstalled()
     }
@@ -630,12 +664,14 @@ QtObject {
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
+      var target = root.busyTarget
       root.busy = false
       root.busyTarget = ""
       root.busyVerb = ""
       root.logOutcome("uninstall", exitCode, uninstallProc.stderr.text)
       var ok = exitCode === 0
       root.statusMessage = ok ? "Removed" : root.shortError(uninstallProc.stderr.text, "Removal failed")
+      if (!ok) root.showResult("Remove " + target, root.failureOutput(uninstallProc.stderr.text), true)
       root.actionFinished(ok, root.statusMessage, verb)
       if (ok) root.refreshInstalled()
     }
@@ -646,12 +682,14 @@ QtObject {
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
+      var target = root.busyTarget
       root.busy = false
       root.busyTarget = ""
       root.busyVerb = ""
       root.logOutcome("updateApp", exitCode, updateAppProc.stderr.text)
       var ok = exitCode === 0
       root.statusMessage = ok ? "Updated" : root.shortError(updateAppProc.stderr.text, "Update failed")
+      if (!ok) root.showResult("Update " + target, root.failureOutput(updateAppProc.stderr.text), true)
       root.actionFinished(ok, root.statusMessage, verb)
       if (ok) { root.refreshInstalled(); root.checkUpdates() }
     }
@@ -682,6 +720,7 @@ QtObject {
       root._twoStepLeg("updateAll", "user", exitCode, updateAllUserProc.stderr.text)
       var ok = root._twoStepError === ""
       root.statusMessage = ok ? "Updated all" : root._twoStepError
+      if (!ok) root.showResult("Update all", root.liveLog, true)
       root.actionFinished(ok, root.statusMessage, "updateAll")
       root.refreshInstalled()
       root.checkUpdates()
@@ -713,8 +752,7 @@ QtObject {
       root._twoStepLeg("cleanUnused", "user", exitCode, cleanUnusedUserProc.stderr.text)
       var ok = root._twoStepError === ""
       root.statusMessage = ok ? "Removed unused runtimes" : root._twoStepError
-      root.lastActionLabel = "Remove unused runtimes"
-      root.lastActionOutput = root.liveLog
+      root.showResult("Remove unused runtimes", root.liveLog, !ok)
       root.actionFinished(ok, root.statusMessage, "cleanUnused")
       root.refreshInstalled()
       root.refreshDiskUsage()
@@ -746,8 +784,7 @@ QtObject {
       root._twoStepLeg("repair", "user", exitCode, repairUserProc.stderr.text)
       var ok = root._twoStepError === ""
       root.statusMessage = ok ? "Repaired installation" : root._twoStepError
-      root.lastActionLabel = "Repair installation"
-      root.lastActionOutput = root.liveLog
+      root.showResult("Repair installation", root.liveLog, !ok)
       root.actionFinished(ok, root.statusMessage, "repair")
       root.refreshInstalled()
     }
@@ -771,12 +808,14 @@ QtObject {
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
+      var target = root.busyTarget
       root.busy = false
       root.busyTarget = ""
       root.busyVerb = ""
       root.logOutcome("addRemote", exitCode, addRemoteProc.stderr.text)
       var ok = exitCode === 0
       root.statusMessage = ok ? "Added" : root.shortError(addRemoteProc.stderr.text, "Add failed")
+      if (!ok) root.showResult("Add repo " + target, root.failureOutput(addRemoteProc.stderr.text), true)
       root.actionFinished(ok, root.statusMessage, verb)
       if (ok) root.refreshRemotes()
     }
@@ -787,12 +826,14 @@ QtObject {
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
+      var target = root.busyTarget
       root.busy = false
       root.busyTarget = ""
       root.busyVerb = ""
       root.logOutcome("removeRemote", exitCode, removeRemoteProc.stderr.text)
       var ok = exitCode === 0
       root.statusMessage = ok ? "Removed" : root.shortError(removeRemoteProc.stderr.text, "Remove failed")
+      if (!ok) root.showResult("Remove repo " + target, root.failureOutput(removeRemoteProc.stderr.text), true)
       root.actionFinished(ok, root.statusMessage, verb)
       if (ok) root.refreshRemotes()
     }
@@ -803,12 +844,14 @@ QtObject {
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       var verb = root.busyVerb
+      var target = root.busyTarget
       root.busy = false
       root.busyTarget = ""
       root.busyVerb = ""
       root.logOutcome("setRemoteEnabled", exitCode, setRemoteEnabledProc.stderr.text)
       var ok = exitCode === 0
       root.statusMessage = ok ? "Updated" : root.shortError(setRemoteEnabledProc.stderr.text, "Failed")
+      if (!ok) root.showResult((verb === "enable" ? "Enable repo " : "Disable repo ") + target, root.failureOutput(setRemoteEnabledProc.stderr.text), true)
       root.actionFinished(ok, root.statusMessage, verb)
       if (ok) root.refreshRemotes()
     }

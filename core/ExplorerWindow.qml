@@ -399,8 +399,8 @@ FloatingWindow {
               border.width: 1
               border.color: active ? root.theme.accent : root.theme.border
               Label {
-                textFormat: Text.PlainText
                 id: tabLabel
+                textFormat: Text.PlainText
                 anchors.centerIn: parent
                 text: modelData
                 color: active ? root.theme.background : root.theme.muted
@@ -411,26 +411,6 @@ FloatingWindow {
               MouseArea { anchors.fill: parent; onClicked: root.activeTab = index }
             }
           }
-        }
-
-        Item { Layout.fillWidth: true }
-        Label {
-          textFormat: Text.PlainText
-          // Only post-action feedback ("Installed", an error, ...) -- while
-          // an action is actually running the popup below already covers
-          // it, so showing the same "Installing..." text up here too would
-          // just be noise.
-          visible: !root.service.busy
-          text: root.service.statusMessage
-          color: root.theme.muted
-          font.family: root.theme.fontFamily
-          font.pixelSize: root.theme.fontSize
-          elide: Text.ElideRight
-          // Explicit minimum -- a Label's implicit minimum in a Layout is
-          // its own text width, which would push the (functional) tab
-          // strip off the edge instead of eliding at narrow sizes.
-          Layout.minimumWidth: 0
-          Layout.maximumWidth: 300
         }
       }
 
@@ -1081,10 +1061,12 @@ FloatingWindow {
       }
     }
 
-    // Maintenance actions (clean/repair) run two flatpak invocations with
-    // no single row to show progress against, so instead of just a terse
-    // status-bar message, their combined output gets its own popup once
-    // both legs finish -- see FlatpakService.lastActionOutput.
+    // Result popup, opened by FlatpakService.showResult(): the combined
+    // output of clean/repair (which have no row to show progress against),
+    // and every failure -- the command's output plus flatpak's own error
+    // text, which needs more room than a one-line status ever had. It must be
+    // dismissed, so an error can't scroll by unnoticed. Successes of row
+    // actions don't open it: the list itself already shows the result.
     Item {
       id: maintenanceOutputOverlay
       anchors.fill: parent
@@ -1097,7 +1079,7 @@ FloatingWindow {
         anchors.centerIn: parent
         radius: 0
         color: root.theme.background
-        border.color: root.theme.accent
+        border.color: root.service.lastActionFailed ? root.theme.danger : root.theme.accent
         border.width: 1
         width: Math.min(480, root.width - 40)
         height: Math.min(360, root.height - 40)
@@ -1109,8 +1091,8 @@ FloatingWindow {
 
           Label {
             textFormat: Text.PlainText
-            text: root.service.lastActionLabel + " -- output"
-            color: root.theme.accent
+            text: root.service.lastActionLabel + (root.service.lastActionFailed ? " -- failed" : " -- output")
+            color: root.service.lastActionFailed ? root.theme.danger : root.theme.accent
             font.family: root.theme.fontFamily
             font.pixelSize: root.theme.fontSize
             font.bold: true

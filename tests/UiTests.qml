@@ -23,6 +23,7 @@ QtObject {
       tabSwitchClears,
       maintenanceDispatch,
       markupIsInert,
+      resultPopup,
       stop
     ], done)
   }
@@ -54,6 +55,23 @@ QtObject {
       win.activeTab = 0
       done()
     })
+  }
+
+  // Feedback lives in the result popup now, not a status line in the header:
+  // that label was capped at 300px, elided real errors, and a long one broke
+  // the whole window's layout.
+  function resultPopup(done) {
+    h.group("result popup, no header status")
+    function shown(text) { return root.textItems(win.contentItem).some(function(t) { return t.visible && t.text === text }) }
+    svc.statusMessage = "SENTINEL status"
+    h.ok("statusMessage is not shown anywhere while idle", !root.textItems(win.contentItem).some(function(t) { return t.text.indexOf("SENTINEL") !== -1 }))
+    svc.showResult("Install org.kde.krita", "$ flatpak install ...\nerror: boom", true)
+    h.ok("a failure is titled as one", shown("Install org.kde.krita -- failed"))
+    svc.showResult("Repair installation", "$ flatpak repair --system", false)
+    h.ok("plain output keeps its old title", shown("Repair installation -- output"))
+    svc.lastActionOutput = ""
+    svc.statusMessage = ""
+    done()
   }
 
   // Anything with a textFormat: Text, Label, TextEdit, TextArea. Recurses

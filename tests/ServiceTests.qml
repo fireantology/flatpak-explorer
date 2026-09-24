@@ -174,6 +174,7 @@ QtObject {
         h.equal("actionFinished reports success", root.lastOk, true)
         h.equal("actionFinished names the verb", root.lastVerb, "install")
         h.equal("status message is the friendly one", svc.statusMessage, "Installed")
+        h.equal("a successful row action opens no popup", svc.lastActionOutput, "")
         next()
       },
       function(next) {
@@ -272,6 +273,11 @@ QtObject {
         h.contains("the real error text is surfaced", svc.statusMessage, "Network unreachable")
         h.equal("busy is released anyway", svc.busy, false)
         h.equal("busyTarget is cleared", svc.busyTarget, "")
+        h.equal("the failure opens the result popup, marked failed", svc.lastActionFailed, true)
+        h.equal("titled with what failed", svc.lastActionLabel, "Install org.kde.krita")
+        h.contains("showing the command that ran", svc.lastActionOutput, "$ flatpak install -y --user -- flathub org.kde.krita")
+        h.contains("and flatpak's own error", svc.lastActionOutput, "error: Unable to load summary from remote flathub: Network unreachable")
+        svc.lastActionOutput = ""
         next()
       },
       function(next) { h.setScenario("default", next) }
@@ -289,10 +295,19 @@ QtObject {
       function(next) { h.clearArgvLog(next) },
       function(next) { root.sawAction = false; svc.updateAll(); next() },
       function(next) { h.waitFor("updateAll finishes", function() { return !svc.busy && root.sawAction }, next) },
-      function(next) { h.equal("and reports success", root.lastOk, true); next() },
+      function(next) {
+        h.equal("and reports success", root.lastOk, true)
+        h.equal("update-all success opens no popup", svc.lastActionOutput, "")
+        next()
+      },
       function(next) { root.sawAction = false; svc.cleanUnused(); next() },
       function(next) { h.waitFor("cleanUnused finishes", function() { return !svc.busy && root.sawAction }, next) },
-      function(next) { h.equal("and reports success", root.lastOk, true); next() },
+      function(next) {
+        h.equal("and reports success", root.lastOk, true)
+        h.equal("clean-up still shows its output, not marked failed", svc.lastActionFailed, false)
+        svc.lastActionOutput = ""
+        next()
+      },
       function(next) { root.sawAction = false; svc.repair(); next() },
       function(next) { h.waitFor("repair finishes", function() { return !svc.busy && root.sawAction }, next) },
       function(next) { h.equal("and reports success", root.lastOk, true); next() },
@@ -331,6 +346,9 @@ QtObject {
         h.equal(c.verb + ": reports failure", root.lastOk, false)
         h.contains(c.verb + ": with flatpak's own error, tagged by scope", svc.statusMessage, "system: error: Not allowed to")
         h.contains(c.verb + ": which also lands in the live log", svc.liveLog, "system: error: Not allowed to")
+        h.equal(c.verb + ": the popup opens, marked failed", svc.lastActionFailed, true)
+        h.contains(c.verb + ": with the error in it", svc.lastActionOutput, "system: error: Not allowed to")
+        svc.lastActionOutput = ""
         next()
       })
       steps.push(function(next) {
@@ -368,6 +386,9 @@ QtObject {
       function(next) { h.waitFor("the response is reported as too large", function() { return svc.statusMessage.indexOf("too much output") !== -1 }, next) },
       function(next) {
         h.equal("and is discarded rather than parsed as truncated JSON", svc.installedApps.length, 0)
+        h.equal("the discard opens the popup, marked failed", svc.lastActionFailed, true)
+        h.equal("naming the listing", svc.lastActionLabel, "Installed list")
+        svc.lastActionOutput = ""
         next()
       },
       function(next) { h.setScenario("default", next) }

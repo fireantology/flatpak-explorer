@@ -18,8 +18,7 @@ QtObject {
   property string lastVerb: ""
 
   function run(done) {
-    h.sequence([
-      start,
+    var groups = [
       startupListings,
       scopeFlags,
       searchQuoting,
@@ -33,9 +32,25 @@ QtObject {
       malformedJson,
       overflowDiscard,
       stderrFlood,
-      versionGate,
-      stop
-    ], done)
+      versionGate
+    ]
+    var steps = [start]
+    groups.forEach(function(group) { steps.push(settle); steps.push(group) })
+    steps.push(stop)
+    h.sequence(steps, done)
+  }
+
+  // Actions end by kicking off refreshes (refreshInstalled/checkUpdates/
+  // refreshDiskUsage) that outlive them. A group that starts while one is
+  // still in flight gets its stray argv line in the log it's about to read,
+  // or has its own refresh no-op -- the proc is already running, under the
+  // previous group's scenario. So every group starts from idle.
+  function settle(done) {
+    var procs = [svc.listProc, svc.searchProc, svc.remoteListSystemProc, svc.remoteListUserProc,
+      svc.updatesSystemProc, svc.updatesUserProc, svc.diskUsageProc, svc.versionCheckProc]
+    h.waitFor("(background refreshes have settled)", function() {
+      return !svc.busy && !procs.some(function(p) { return p.running })
+    }, done)
   }
 
   function start(done) {

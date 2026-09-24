@@ -29,6 +29,7 @@ QtObject {
   property string statusMessage: ""
 
   readonly property int listingCapChars: 8 * 1024 * 1024
+  readonly property int stderrCapChars: 64 * 1024
   readonly property int liveLogCapChars: 256 * 1024
  
   readonly property int liveLogTrimToChars: 192 * 1024
@@ -110,15 +111,34 @@ QtObject {
   // size limit and only hands its buffer over once the stream ends, so a
   // length check on receipt would cap what's retained, never what was held --
   // `head -c` makes the kernel enforce it instead, and SIGPIPEs flatpak the
-  // moment the cap is hit, so there's no kill path to write. Only stdout is
-  // piped; stderr still comes back untouched.
+  // moment the cap is hit, so there's no kill path to write.
+  //
+  // stderr goes through `tail -c` on its own pipe (fd 3 carries stdout past
+  // it) for the same reason. tail, not head: the line worth keeping is the
+  // *last* one (shortError), and tail drains its input instead of SIGPIPEing
+  // flatpak, so a noisy stderr can't abort the listing either.
   //
   // `arg` is passed through argv as "$1", never interpolated into the script,
   // so a search query can't reach the shell as code.
   function cappedCommand(script, arg) {
-    var cmd = ["sh", "-c", "exec " + script + " | head -c " + listingCapChars]
+    var cmd = ["sh", "-c", "{ " + script + " 2>&1 1>&3 3>&- | tail -c " + stderrCapChars + " 1>&2 3>&-; } 3>&1 | head -c " + listingCapChars]
     if (arg !== undefined) { cmd.push("sh"); cmd.push(arg) }
     return cmd
+  }
+
+  // The mutating counterpart: stdout untouched (SplitParser already reads it
+  // a line at a time into the retention-capped liveLog), stderr through the
+  // same `tail -c` as above. Unlike a listing, the exit code matters here, and
+  // plain sh has no pipefail -- so the status is carried out of the pipeline
+  // on fd 4 and re-raised. An empty status (the pipeline was killed before it
+  // got that far) exits 1, never a false 0.
+  //
+  // `argv` is the plain ["flatpak", ...] command and reaches the shell as
+  // "$@", never as script text. Log and display that, not what this returns.
+  function stderrTailedCommand(argv) {
+    return ["sh", "-c",
+      "exec 3>&1; st=$( { { \"$@\" 2>&1 1>&3 3>&- 4>&-; echo $? 1>&4; } | tail -c " + stderrCapChars + " 1>&2 3>&-; } 4>&1 ); exit \"${st:-1}\"",
+      "sh"].concat(argv)
   }
 
   // head -c truncates at exactly the cap, so a response that reaches it was
@@ -245,9 +265,10 @@ QtObject {
     statusMessage = "Installing " + appId + "..."
     var remoteName = remote || "flathub"
     installProc.running = false
-    installProc.command = ["flatpak", "install", "-y", "--" + remoteScope(remoteName), remoteName, appId]
-    log("install: " + JSON.stringify(installProc.command))
-    beginLiveLog(installProc.command)
+    var argv = ["flatpak", "install", "-y", "--" + remoteScope(remoteName), remoteName, appId]
+    installProc.command = stderrTailedCommand(argv)
+    log("install: " + JSON.stringify(argv))
+    beginLiveLog(argv)
     installProc.running = true
   }
 
@@ -258,9 +279,10 @@ QtObject {
     busyVerb = "uninstall"
     statusMessage = "Removing " + appId + "..."
     uninstallProc.running = false
-    uninstallProc.command = ["flatpak", "uninstall", "-y", "--" + (scope || scopeOf(appId)), appId]
-    log("uninstall: " + JSON.stringify(uninstallProc.command))
-    beginLiveLog(uninstallProc.command)
+    var argv = ["flatpak", "uninstall", "-y", "--" + (scope || scopeOf(appId)), appId]
+    uninstallProc.command = stderrTailedCommand(argv)
+    log("uninstall: " + JSON.stringify(argv))
+    beginLiveLog(argv)
     uninstallProc.running = true
   }
 
@@ -271,9 +293,10 @@ QtObject {
     busyVerb = "update"
     statusMessage = "Updating " + appId + "..."
     updateAppProc.running = false
-    updateAppProc.command = ["flatpak", "update", "-y", "--" + (scope || scopeOf(appId)), appId]
-    log("updateApp: " + JSON.stringify(updateAppProc.command))
-    beginLiveLog(updateAppProc.command)
+    var argv = ["flatpak", "update", "-y", "--" + (scope || scopeOf(appId)), appId]
+    updateAppProc.command = stderrTailedCommand(argv)
+    log("updateApp: " + JSON.stringify(argv))
+    beginLiveLog(argv)
     updateAppProc.running = true
   }
 
@@ -283,8 +306,8 @@ QtObject {
     busyTarget = ""
     busyVerb = "updateAll"
     statusMessage = "Updating system packages..."
-    log("updateAll: " + JSON.stringify(updateAllSystemProc.command) + " (then --user)")
-    beginLiveLog(updateAllSystemProc.command)
+    log("updateAll: " + JSON.stringify(updateAllSystemProc.argv) + " (then --user)")
+    beginLiveLog(updateAllSystemProc.argv)
     updateAllSystemProc.running = false
     updateAllSystemProc.running = true
   }
@@ -298,8 +321,8 @@ QtObject {
     busyTarget = ""
     busyVerb = "cleanUnused"
     statusMessage = "Removing unused runtimes (system)..."
-    log("cleanUnused: " + JSON.stringify(cleanUnusedSystemProc.command) + " (then --user)")
-    beginLiveLog(cleanUnusedSystemProc.command)
+    log("cleanUnused: " + JSON.stringify(cleanUnusedSystemProc.argv) + " (then --user)")
+    beginLiveLog(cleanUnusedSystemProc.argv)
     cleanUnusedSystemProc.running = false
     cleanUnusedSystemProc.running = true
   }
@@ -312,8 +335,8 @@ QtObject {
     busyTarget = ""
     busyVerb = "repair"
     statusMessage = "Repairing system installation..."
-    log("repair: " + JSON.stringify(repairSystemProc.command) + " (then --user)")
-    beginLiveLog(repairSystemProc.command)
+    log("repair: " + JSON.stringify(repairSystemProc.argv) + " (then --user)")
+    beginLiveLog(repairSystemProc.argv)
     repairSystemProc.running = false
     repairSystemProc.running = true
   }
@@ -325,9 +348,10 @@ QtObject {
     busyVerb = "add"
     statusMessage = "Adding " + name + "..."
     addRemoteProc.running = false
-    addRemoteProc.command = ["flatpak", "remote-add", "--if-not-exists", "--" + (scope || "user"), name, url]
-    log("addRemote: " + JSON.stringify(addRemoteProc.command))
-    beginLiveLog(addRemoteProc.command)
+    var argv = ["flatpak", "remote-add", "--if-not-exists", "--" + (scope || "user"), name, url]
+    addRemoteProc.command = stderrTailedCommand(argv)
+    log("addRemote: " + JSON.stringify(argv))
+    beginLiveLog(argv)
     addRemoteProc.running = true
   }
 
@@ -338,9 +362,10 @@ QtObject {
     busyVerb = "removeRemote"
     statusMessage = "Removing " + name + "..."
     removeRemoteProc.running = false
-    removeRemoteProc.command = ["flatpak", "remote-delete", "--" + scope, name]
-    log("removeRemote: " + JSON.stringify(removeRemoteProc.command))
-    beginLiveLog(removeRemoteProc.command)
+    var argv = ["flatpak", "remote-delete", "--" + scope, name]
+    removeRemoteProc.command = stderrTailedCommand(argv)
+    log("removeRemote: " + JSON.stringify(argv))
+    beginLiveLog(argv)
     removeRemoteProc.running = true
   }
 
@@ -351,9 +376,10 @@ QtObject {
     busyVerb = enabled ? "enable" : "disable"
     statusMessage = (enabled ? "Enabling " : "Disabling ") + name + "..."
     setRemoteEnabledProc.running = false
-    setRemoteEnabledProc.command = ["flatpak", "remote-modify", "--" + scope, enabled ? "--enable" : "--disable", name]
-    log("setRemoteEnabled: " + JSON.stringify(setRemoteEnabledProc.command))
-    beginLiveLog(setRemoteEnabledProc.command)
+    var argv = ["flatpak", "remote-modify", "--" + scope, enabled ? "--enable" : "--disable", name]
+    setRemoteEnabledProc.command = stderrTailedCommand(argv)
+    log("setRemoteEnabled: " + JSON.stringify(argv))
+    beginLiveLog(argv)
     setRemoteEnabledProc.running = true
   }
 
@@ -607,19 +633,21 @@ QtObject {
   }
 
   property Process updateAllSystemProc: Process {
-    command: ["flatpak", "update", "-y"]
+    readonly property var argv: ["flatpak", "update", "-y"]
+    command: root.stderrTailedCommand(argv)
     stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       root.logOutcome("updateAll(system)", exitCode, updateAllSystemProc.stderr.text)
       root.statusMessage = "Updating user packages..."
-      root.appendLiveLogCommand(updateAllUserProc.command)
+      root.appendLiveLogCommand(updateAllUserProc.argv)
       updateAllUserProc.running = true
     }
   }
 
   property Process updateAllUserProc: Process {
-    command: ["flatpak", "update", "-y", "--user"]
+    readonly property var argv: ["flatpak", "update", "-y", "--user"]
+    command: root.stderrTailedCommand(argv)
     stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
@@ -635,19 +663,21 @@ QtObject {
   }
 
   property Process cleanUnusedSystemProc: Process {
-    command: ["flatpak", "uninstall", "-y", "--unused", "--system"]
+    readonly property var argv: ["flatpak", "uninstall", "-y", "--unused", "--system"]
+    command: root.stderrTailedCommand(argv)
     stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       root.logOutcome("cleanUnused(system)", exitCode, cleanUnusedSystemProc.stderr.text)
       root.statusMessage = "Removing unused runtimes (user)..."
-      root.appendLiveLogCommand(cleanUnusedUserProc.command)
+      root.appendLiveLogCommand(cleanUnusedUserProc.argv)
       cleanUnusedUserProc.running = true
     }
   }
 
   property Process cleanUnusedUserProc: Process {
-    command: ["flatpak", "uninstall", "-y", "--unused", "--user"]
+    readonly property var argv: ["flatpak", "uninstall", "-y", "--unused", "--user"]
+    command: root.stderrTailedCommand(argv)
     stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
@@ -665,19 +695,21 @@ QtObject {
   }
 
   property Process repairSystemProc: Process {
-    command: ["flatpak", "repair", "--system"]
+    readonly property var argv: ["flatpak", "repair", "--system"]
+    command: root.stderrTailedCommand(argv)
     stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
       root.logOutcome("repair(system)", exitCode, repairSystemProc.stderr.text)
       root.statusMessage = "Repairing user installation..."
-      root.appendLiveLogCommand(repairUserProc.command)
+      root.appendLiveLogCommand(repairUserProc.argv)
       repairUserProc.running = true
     }
   }
 
   property Process repairUserProc: Process {
-    command: ["flatpak", "repair", "--user"]
+    readonly property var argv: ["flatpak", "repair", "--user"]
+    command: root.stderrTailedCommand(argv)
     stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {

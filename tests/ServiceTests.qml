@@ -29,6 +29,7 @@ QtObject {
       failurePath,
       malformedJson,
       overflowDiscard,
+      stderrFlood,
       versionGate,
       stop
     ], done)
@@ -261,6 +262,33 @@ QtObject {
       function(next) { h.waitFor("the response is reported as too large", function() { return svc.statusMessage.indexOf("too much output") !== -1 }, next) },
       function(next) {
         h.equal("and is discarded rather than parsed as truncated JSON", svc.installedApps.length, 0)
+        next()
+      },
+      function(next) { h.setScenario("default", next) }
+    ], done)
+  }
+
+  // stderr is capped at the source like stdout: the collector must hold no
+  // more than stderrCapChars however much flatpak writes, and the last line --
+  // the one shortError shows -- must survive the cut.
+  function stderrFlood(done) {
+    h.group("oversized stderr")
+    h.sequence([
+      function(next) { h.setScenario("stderrflood", next) },
+      function(next) { svc.installedApps = []; svc.refreshInstalled(); next() },
+      function(next) { h.waitFor("a listing still parses despite the stderr flood", function() { return svc.installedApps.length > 0 }, next) },
+      function(next) {
+        var held = svc.listProc.stderr.text.length
+        h.ok("listing stderr is held to the cap", held > 0 && held <= svc.stderrCapChars, "held " + held)
+        next()
+      },
+      function(next) { root.sawAction = false; svc.install("org.kde.krita", "flathub"); next() },
+      function(next) { h.waitFor("the install finishes", function() { return !svc.busy && root.sawAction }, next) },
+      function(next) {
+        var held = svc.installProc.stderr.text.length
+        h.ok("mutating stderr is held to the cap", held > 0 && held <= svc.stderrCapChars, "held " + held)
+        h.equal("flatpak's own non-zero exit still reads as failure", root.lastOk, false)
+        h.equal("the last stderr line survives the cut", svc.statusMessage, "error: install after a flood of warnings")
         next()
       },
       function(next) { h.setScenario("default", next) }

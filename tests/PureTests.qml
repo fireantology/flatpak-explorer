@@ -38,8 +38,9 @@ QtObject {
     var plain = svc.cappedCommand("flatpak list -j")
     h.equal("wraps in sh -c", plain[0], "sh")
     h.equal("second arg is -c", plain[1], "-c")
-    h.contains("execs the command", plain[2], "exec flatpak list -j")
-    h.contains("pipes through head -c", plain[2], "| head -c " + svc.listingCapChars)
+    h.contains("runs the command", plain[2], "{ flatpak list -j ")
+    h.contains("pipes stdout through head -c", plain[2], "| head -c " + svc.listingCapChars)
+    h.contains("pipes stderr through tail -c", plain[2], "| tail -c " + svc.stderrCapChars + " 1>&2")
     h.equal("no extra argv without an argument", plain.length, 3)
 
     // The injection guard: a query must reach the shell as argv, never as
@@ -51,6 +52,16 @@ QtObject {
     h.equal("argv[4] is the raw query", withArg[4], evil)
     h.contains("script references $1", withArg[2], '"$1"')
     h.notContains("script text never contains the query", withArg[2], "rm -rf")
+
+    // Same guard for the mutating wrapper, whose whole argv is user-reachable
+    // (app ids, remote names and URLs).
+    var mutating = svc.stderrTailedCommand(["flatpak", "remote-add", "--user", evil, "https://x"])
+    h.equal("mutating: wraps in sh -c", mutating.slice(0, 2).join(" "), "sh -c")
+    h.equal("mutating: argv follows the $0 placeholder untouched", mutating.slice(3).join("|"), "sh|flatpak|remote-add|--user|" + evil + "|https://x")
+    h.contains("mutating: runs \"$@\"", mutating[2], '"$@"')
+    h.contains("mutating: pipes stderr through tail -c", mutating[2], "| tail -c " + svc.stderrCapChars + " 1>&2")
+    h.contains("mutating: re-raises the command's own status", mutating[2], 'exit "${st:-1}"')
+    h.notContains("mutating: script text never contains the input", mutating[2], "rm -rf")
 
     var cap = svc.listingCapChars
     var atCap = new Array(cap + 1).join("x")

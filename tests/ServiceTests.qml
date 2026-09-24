@@ -29,6 +29,7 @@ QtObject {
       busySerialization,
       failurePath,
       twoStepScopes,
+      twoStepFailure,
       malformedJson,
       overflowDiscard,
       stderrFlood,
@@ -295,6 +296,37 @@ QtObject {
         })
       }
     ], done)
+  }
+
+  // A failed system leg (a cancelled polkit prompt, say) used to be reported
+  // as success, since only the user leg's completion decided the verdict.
+  function twoStepFailure(done) {
+    h.group("a failed system leg fails the two-step action")
+    var cases = [
+      { verb: "updateAll", argv0: "update", run: function() { svc.updateAll() } },
+      { verb: "cleanUnused", argv0: "uninstall", run: function() { svc.cleanUnused() } },
+      { verb: "repair", argv0: "repair", run: function() { svc.repair() } }
+    ]
+    var steps = [function(next) { h.setScenario("failsystem", next) }]
+    cases.forEach(function(c) {
+      steps.push(function(next) { h.clearArgvLog(next) })
+      steps.push(function(next) { root.sawAction = false; c.run(); next() })
+      steps.push(function(next) { h.waitFor(c.verb + " finishes", function() { return !svc.busy && root.sawAction }, next) })
+      steps.push(function(next) {
+        h.equal(c.verb + ": reports failure", root.lastOk, false)
+        h.contains(c.verb + ": with flatpak's own error, tagged by scope", svc.statusMessage, "system: error: Not allowed to")
+        h.contains(c.verb + ": which also lands in the live log", svc.liveLog, "system: error: Not allowed to")
+        next()
+      })
+      steps.push(function(next) {
+        h.readArgvLog(function(text) {
+          h.ok(c.verb + ": the user leg still ran", text.split("\n").some(function(l) { return l.indexOf(c.argv0 + "\t") === 0 && l.indexOf("\t--user\t") !== -1 }))
+          next()
+        })
+      })
+    })
+    steps.push(function(next) { h.setScenario("default", next) })
+    h.sequence(steps, done)
   }
 
   function malformedJson(done) {

@@ -305,11 +305,29 @@ QtObject {
     updateAppProc.running = true
   }
 
+  // updateAll/cleanUnused/repair each run a system leg then a user leg. The
+  // user leg runs whatever the system leg did -- the installations are
+  // independent, and a cancelled polkit prompt for system shouldn't cost the
+  // user side its turn -- but the verdict covers both: either leg failing
+  // fails the action, reported with flatpak's own error text (the first
+  // failure's). The line also goes into liveLog, since for cleanUnused/repair
+  // that's what the output popup shows.
+  property string _twoStepError: ""
+
+  function _twoStepLeg(name, scope, exitCode, stderrText) {
+    logOutcome(name + "(" + scope + ")", exitCode, stderrText)
+    if (exitCode === 0) return
+    var err = scope + ": " + shortError(stderrText, "exit " + exitCode)
+    appendLiveLog(err)
+    if (_twoStepError === "") _twoStepError = err
+  }
+
   function updateAll() {
     if (busy) { log("updateAll: ignored, busy with " + busyTarget); return }
     busy = true
     busyTarget = ""
     busyVerb = "updateAll"
+    _twoStepError = ""
     statusMessage = "Updating system packages..."
     log("updateAll: " + JSON.stringify(updateAllSystemProc.argv) + " (then --user)")
     beginLiveLog(updateAllSystemProc.argv)
@@ -325,6 +343,7 @@ QtObject {
     busy = true
     busyTarget = ""
     busyVerb = "cleanUnused"
+    _twoStepError = ""
     statusMessage = "Removing unused runtimes (system)..."
     log("cleanUnused: " + JSON.stringify(cleanUnusedSystemProc.argv) + " (then --user)")
     beginLiveLog(cleanUnusedSystemProc.argv)
@@ -339,6 +358,7 @@ QtObject {
     busy = true
     busyTarget = ""
     busyVerb = "repair"
+    _twoStepError = ""
     statusMessage = "Repairing system installation..."
     log("repair: " + JSON.stringify(repairSystemProc.argv) + " (then --user)")
     beginLiveLog(repairSystemProc.argv)
@@ -643,7 +663,7 @@ QtObject {
     stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
-      root.logOutcome("updateAll(system)", exitCode, updateAllSystemProc.stderr.text)
+      root._twoStepLeg("updateAll", "system", exitCode, updateAllSystemProc.stderr.text)
       root.statusMessage = "Updating user packages..."
       root.appendLiveLogCommand(updateAllUserProc.argv)
       updateAllUserProc.running = true
@@ -659,9 +679,10 @@ QtObject {
       root.busy = false
       root.busyTarget = ""
       root.busyVerb = ""
-      root.logOutcome("updateAll(user)", exitCode, updateAllUserProc.stderr.text)
-      root.statusMessage = "Updated all"
-      root.actionFinished(true, "Updated all", "updateAll")
+      root._twoStepLeg("updateAll", "user", exitCode, updateAllUserProc.stderr.text)
+      var ok = root._twoStepError === ""
+      root.statusMessage = ok ? "Updated all" : root._twoStepError
+      root.actionFinished(ok, root.statusMessage, "updateAll")
       root.refreshInstalled()
       root.checkUpdates()
     }
@@ -673,7 +694,7 @@ QtObject {
     stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
-      root.logOutcome("cleanUnused(system)", exitCode, cleanUnusedSystemProc.stderr.text)
+      root._twoStepLeg("cleanUnused", "system", exitCode, cleanUnusedSystemProc.stderr.text)
       root.statusMessage = "Removing unused runtimes (user)..."
       root.appendLiveLogCommand(cleanUnusedUserProc.argv)
       cleanUnusedUserProc.running = true
@@ -689,11 +710,12 @@ QtObject {
       root.busy = false
       root.busyTarget = ""
       root.busyVerb = ""
-      root.logOutcome("cleanUnused(user)", exitCode, cleanUnusedUserProc.stderr.text)
-      root.statusMessage = "Removed unused runtimes"
+      root._twoStepLeg("cleanUnused", "user", exitCode, cleanUnusedUserProc.stderr.text)
+      var ok = root._twoStepError === ""
+      root.statusMessage = ok ? "Removed unused runtimes" : root._twoStepError
       root.lastActionLabel = "Remove unused runtimes"
       root.lastActionOutput = root.liveLog
-      root.actionFinished(true, root.statusMessage, "cleanUnused")
+      root.actionFinished(ok, root.statusMessage, "cleanUnused")
       root.refreshInstalled()
       root.refreshDiskUsage()
     }
@@ -705,7 +727,7 @@ QtObject {
     stdout: SplitParser { onRead: function(line) { root.appendLiveLog(line) } }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
-      root.logOutcome("repair(system)", exitCode, repairSystemProc.stderr.text)
+      root._twoStepLeg("repair", "system", exitCode, repairSystemProc.stderr.text)
       root.statusMessage = "Repairing user installation..."
       root.appendLiveLogCommand(repairUserProc.argv)
       repairUserProc.running = true
@@ -721,11 +743,12 @@ QtObject {
       root.busy = false
       root.busyTarget = ""
       root.busyVerb = ""
-      root.logOutcome("repair(user)", exitCode, repairUserProc.stderr.text)
-      root.statusMessage = "Repaired installation"
+      root._twoStepLeg("repair", "user", exitCode, repairUserProc.stderr.text)
+      var ok = root._twoStepError === ""
+      root.statusMessage = ok ? "Repaired installation" : root._twoStepError
       root.lastActionLabel = "Repair installation"
       root.lastActionOutput = root.liveLog
-      root.actionFinished(true, root.statusMessage, "repair")
+      root.actionFinished(ok, root.statusMessage, "repair")
       root.refreshInstalled()
     }
   }

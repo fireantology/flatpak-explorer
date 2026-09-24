@@ -93,6 +93,10 @@ case "$1" in
       stderrflood "$1"
       exit 3
     fi
+    if [ "$scenario" = "failsystem" ] && [ "$scope" = "system" ]; then
+      echo "error: Not allowed to $1 the system installation" >&2
+      exit 1
+    fi
     if [ "$scenario" = "failmutate" ]; then
       echo "error: Unable to load summary from remote flathub: Network unreachable" >&2
       exit 1

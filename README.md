@@ -8,7 +8,7 @@ It runs two ways from the same code: as a normal standalone window on any
 Hyprland (or other wlroots) desktop with Quickshell installed, or as an
 Omarchy shell plugin with native theme integration.
 
-![Flatpak Explorer showing the Installed tab](docs/screnshoot.png)
+![Flatpak Explorer showing the Installed tab](preview.png)
 
 ## Features
 
